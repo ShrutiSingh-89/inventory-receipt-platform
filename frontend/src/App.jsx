@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Activity, ArrowRight, Box, Check, CheckCircle2, ChevronRight, CircleDot,
   Clock3, FileCheck2, LayoutGrid, PackageCheck, Plus, Radio, Search,
-  RotateCcw, Save, ShieldCheck, Trash2, Truck, XCircle
+  RotateCcw, Save, ShieldCheck, Sparkles, Trash2, Truck, XCircle
 } from 'lucide-react';
 import {
-  createReceipt, createTransferOrder, demoItems, isDemo, listOrganizations,
+  analyzeShipment, createReceipt, createTransferOrder, demoItems, isDemo, listOrganizations,
   listTransferOrders, searchItems, transferOrderStatuses, updateTransferOrder
 } from './api';
 
@@ -17,8 +17,8 @@ const sampleReceipt = {
   createdAt: '2026-09-15T10:42:18Z',
   totalUnits: 28,
   lines: [
-    { itemId: 1, sku: 'ITM-1001', itemName: 'Industrial Barcode Scanner', quantity: 8, serialNumber: 'SCN-B2409-01' },
-    { itemId: 2, sku: 'ITM-1002', itemName: 'Thermal Label Roll', quantity: 20, serialNumber: null }
+    { itemId: 1, sku: 'ITM-1001', itemName: 'Industrial Barcode Scanner', quantity: 2, serialNumbers: ['SCN-B2409-01', 'SCN-B2409-02'] },
+    { itemId: 2, sku: 'ITM-1002', itemName: 'Thermal Label Roll', quantity: 20, serialNumbers: [] }
   ],
   auditHistory: [
     { status: 'RECEIVED', message: 'Receipt validated and persisted', timestamp: '2026-09-15T10:42:18Z' },
@@ -33,6 +33,7 @@ function App() {
   const [view, setView] = useState(initialView);
   const [receipt, setReceipt] = useState(initialView === 'status' && isDemo ? sampleReceipt : null);
   const [draftLines, setDraftLines] = useState([]);
+  const [draftSupplier, setDraftSupplier] = useState('');
 
   function navigate(next) {
     setView(next);
@@ -42,7 +43,13 @@ function App() {
   function addItem(item) {
     setDraftLines(lines => lines.some(line => line.item.id === item.id)
       ? lines
-      : [...lines, { item, quantity: 1, serialNumber: '' }]);
+      : [...lines, { item, quantity: 1, serialNumbers: '' }]);
+    navigate('create');
+  }
+
+  function applyCopilotDraft(draft) {
+    setDraftSupplier(draft.supplierName);
+    setDraftLines(draft.lines);
     navigate('create');
   }
 
@@ -53,9 +60,11 @@ function App() {
         <Topbar view={view} />
         <div className="page-wrap">
           {view === 'inventory' && <InventorySearch onAdd={addItem} />}
+          {view === 'copilot' && <ReceivingCopilot onApply={applyCopilotDraft} />}
           {view === 'create' && (
             <CreateReceipt
               initialLines={draftLines}
+              initialSupplier={draftSupplier}
               validationDemo={validationDemo}
               onCreated={created => { setReceipt(created); navigate('status'); }}
             />
@@ -72,6 +81,7 @@ function App() {
 function Sidebar({ view, navigate }) {
   const links = [
     ['inventory', LayoutGrid, 'Inventory'],
+    ['copilot', Sparkles, 'AI receiving copilot'],
     ['create', Plus, 'New receipt'],
     ['status', FileCheck2, 'Receipt status'],
     ['transfers', Truck, 'Transfer orders'],
@@ -100,7 +110,7 @@ function Sidebar({ view, navigate }) {
 function Topbar({ view }) {
   return (
     <header className="topbar">
-      <div><span className="crumb-muted">Central Distribution</span><ChevronRight size={15} /><strong>{view === 'transfers' ? 'Inventory transfers' : 'Receiving'}</strong></div>
+      <div><span className="crumb-muted">Central Distribution</span><ChevronRight size={15} /><strong>{view === 'transfers' ? 'Inventory transfers' : view === 'copilot' ? 'AI-assisted receiving' : 'Receiving'}</strong></div>
       <span className="environment"><CircleDot size={13} /> Local environment</span>
     </header>
   );
@@ -154,20 +164,24 @@ function Metric({ value, label, detail }) {
   return <div className="metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
 }
 
-function CreateReceipt({ initialLines, validationDemo, onCreated }) {
+function parseSerials(value) {
+  return String(value || '').split(/[\n,]+/).map(serial => serial.trim()).filter(Boolean);
+}
+
+function CreateReceipt({ initialLines, initialSupplier, validationDemo, onCreated }) {
   const startingLines = useMemo(() => {
     if (initialLines.length) return initialLines;
     return validationDemo
       ? [
-          { item: demoItems[0], quantity: 8, serialNumber: 'SCN-B2409-01' },
-          { item: demoItems[2], quantity: 4, serialNumber: 'SCN-B2409-01' }
+          { item: demoItems[0], quantity: 1, serialNumbers: 'SCN-B2409-01' },
+          { item: demoItems[2], quantity: 1, serialNumbers: 'SCN-B2409-01' }
         ]
       : [
-          { item: demoItems[0], quantity: 8, serialNumber: 'SCN-B2409-01' },
-          { item: demoItems[1], quantity: 20, serialNumber: '' }
+          { item: demoItems[0], quantity: 2, serialNumbers: 'SCN-B2409-01, SCN-B2409-02' },
+          { item: demoItems[1], quantity: 20, serialNumbers: '' }
         ];
   }, []);
-  const [supplier, setSupplier] = useState('Northwind Industrial Supply');
+  const [supplier, setSupplier] = useState(initialSupplier || 'Northwind Industrial Supply');
   const [lines, setLines] = useState(startingLines);
   const [errors, setErrors] = useState(validationDemo ? { serial: 'Serial number must be unique within this receipt.' } : {});
   const [submitting, setSubmitting] = useState(false);
@@ -181,16 +195,30 @@ function CreateReceipt({ initialLines, validationDemo, onCreated }) {
 
   async function submit(event) {
     event.preventDefault();
-    const serials = lines.map(line => line.serialNumber.trim().toLowerCase()).filter(Boolean);
+    const serials = lines.flatMap(line => parseSerials(line.serialNumbers))
+      .map(serial => serial.toLowerCase());
     const nextErrors = {};
     if (!supplier.trim()) nextErrors.supplier = 'Supplier name is required.';
     if (!lines.length) nextErrors.lines = 'Add at least one receipt line.';
     if (lines.some(line => Number(line.quantity) < 1)) nextErrors.quantity = 'Quantity must be greater than zero.';
     if (new Set(serials).size !== serials.length) nextErrors.serial = 'Serial number must be unique within this receipt.';
+    const policyError = lines.find(line => {
+      const count = parseSerials(line.serialNumbers).length;
+      return line.item.serialControlled ? count !== Number(line.quantity) : count > 0;
+    });
+    if (policyError) {
+      nextErrors.policy = policyError.item.serialControlled
+        ? `${policyError.item.sku} requires one serial number for each unit.`
+        : `${policyError.item.sku} is not serial-controlled.`;
+    }
     if (Object.keys(nextErrors).length) { setErrors(nextErrors); return; }
     setSubmitting(true); setApiError('');
     try {
-      const created = await createReceipt({ supplierName: supplier, lines: lines.map(line => ({ itemId: line.item.id, quantity: Number(line.quantity), serialNumber: line.serialNumber || null })) });
+      const created = await createReceipt({ supplierName: supplier, lines: lines.map(line => ({
+        itemId: line.item.id,
+        quantity: Number(line.quantity),
+        serialNumbers: parseSerials(line.serialNumbers)
+      })) });
       onCreated(created);
     } catch (error) { setApiError(error.message); }
     finally { setSubmitting(false); }
@@ -206,17 +234,18 @@ function CreateReceipt({ initialLines, validationDemo, onCreated }) {
             <label className="field"><span>Supplier name <b>*</b></span><input value={supplier} onChange={e => setSupplier(e.target.value)} className={errors.supplier ? 'invalid' : ''}/>{errors.supplier && <small className="field-error">{errors.supplier}</small>}</label>
           </section>
           <section className="panel form-section lines-section">
-            <div className="section-heading"><span>2</span><div><h2>Receipt lines</h2><p>Add items, quantities, and optional serial numbers.</p></div><button type="button" className="text-button"><Plus size={16}/> Add item</button></div>
-            <div className="line-table-head"><span>ITEM</span><span>QUANTITY</span><span>SERIAL NUMBER</span><span/></div>
+            <div className="section-heading"><span>2</span><div><h2>Receipt lines</h2><p>Add items, quantities, and one serial per controlled unit.</p></div><button type="button" className="text-button"><Plus size={16}/> Add item</button></div>
+            <div className="line-table-head"><span>ITEM</span><span>QUANTITY</span><span>SERIAL NUMBERS</span><span/></div>
             {lines.map((line, index) => (
               <div className="line-row" key={`${line.item.id}-${index}`}>
                 <div className="line-item"><div className="mini-icon"><Box size={18}/></div><div><strong>{line.item.name}</strong><span>{line.item.sku}</span></div></div>
                 <label><input type="number" min="1" max="10000" value={line.quantity} onChange={e => updateLine(index, 'quantity', e.target.value)} className={errors.quantity ? 'invalid' : ''}/></label>
-                <label><input value={line.serialNumber} onChange={e => updateLine(index, 'serialNumber', e.target.value)} placeholder="Optional" className={errors.serial && line.serialNumber ? 'invalid' : ''}/>{errors.serial && index === lines.length - 1 && <small className="field-error inline-error">{errors.serial}</small>}</label>
+                <label><input value={line.serialNumbers} onChange={e => updateLine(index, 'serialNumbers', e.target.value)} placeholder={line.item.serialControlled ? 'Comma-separated, one per unit' : 'Not required'} className={(errors.serial || errors.policy) && line.serialNumbers ? 'invalid' : ''}/>{errors.serial && index === lines.length - 1 && <small className="field-error inline-error">{errors.serial}</small>}</label>
                 <button type="button" className="icon-button" onClick={() => removeLine(index)}><Trash2 size={17}/></button>
               </div>
             ))}
             {errors.lines && <div className="error-banner"><XCircle size={18}/>{errors.lines}</div>}
+            {errors.policy && <div className="error-banner"><XCircle size={18}/>{errors.policy}</div>}
           </section>
           {apiError && <div className="error-banner"><XCircle size={18}/>{apiError}</div>}
         </div>
@@ -225,12 +254,264 @@ function CreateReceipt({ initialLines, validationDemo, onCreated }) {
           <div className="summary-line"><span>Line items</span><strong>{lines.length}</strong></div>
           <div className="summary-line"><span>Total units</span><strong>{lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)}</strong></div>
           <div className="divider"/>
-          <div className="check-list"><span><Check size={15}/> Supplier identified</span><span><Check size={15}/> Quantities validated</span><span className={errors.serial ? 'check-bad' : ''}>{errors.serial ? <XCircle size={15}/> : <Check size={15}/>} Serial numbers unique</span></div>
+          <div className="check-list"><span><Check size={15}/> Supplier identified</span><span><Check size={15}/> Quantities validated</span><span className={errors.serial || errors.policy ? 'check-bad' : ''}>{errors.serial || errors.policy ? <XCircle size={15}/> : <Check size={15}/>} Serial policy validated</span></div>
           <button className="primary submit-button" disabled={submitting}>{submitting ? 'Creating receipt…' : 'Create receipt'}<ArrowRight size={17}/></button>
           <p className="submit-note"><ShieldCheck size={14}/> Validation runs before any data is saved.</p>
         </aside>
       </div>
     </form>
+  );
+}
+
+const starterShipmentLines = [
+  {
+    lineId: 'SUP-1',
+    supplierDescription: 'Rugged handheld scanner with charging dock',
+    expectedQuantity: '3',
+    receivedQuantity: '3',
+    suppliedSerials: 'SUP-SCN-0001, SUP-SCN-0002'
+  },
+  {
+    lineId: 'SUP-2',
+    supplierDescription: '4x6 thermal warehouse labels',
+    expectedQuantity: '5',
+    receivedQuantity: '7',
+    suppliedSerials: ''
+  },
+  {
+    lineId: 'SUP-3',
+    supplierDescription: 'Warehouse floor tablet 10 inch',
+    expectedQuantity: '2',
+    receivedQuantity: '2',
+    suppliedSerials: 'SUP-TAB-0201, SUP-TAB-0202'
+  }
+];
+
+function ReceivingCopilot({ onApply }) {
+  const [supplierName, setSupplierName] = useState('Northwind Industrial Supply');
+  const [organizationId, setOrganizationId] = useState('');
+  const [instructions, setInstructions] = useState(
+    'Match supplier descriptions to our catalog, identify quantity exceptions, and propose missing serial numbers.'
+  );
+  const [allowGeneratedSerials, setAllowGeneratedSerials] = useState(true);
+  const [shipmentLines, setShipmentLines] = useState(starterShipmentLines);
+  const [organizations, setOrganizations] = useState([]);
+  const [items, setItems] = useState([]);
+  const [analysis, setAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([listOrganizations(), searchItems('')])
+      .then(([organizationData, itemData]) => {
+        if (!active) return;
+        setOrganizations(organizationData);
+        setItems(itemData);
+        if (organizationData.length) setOrganizationId(String(organizationData[0].id));
+      })
+      .catch(loadError => setError(loadError.message));
+    return () => { active = false; };
+  }, []);
+
+  function updateShipmentLine(index, field, value) {
+    setShipmentLines(current => current.map((line, lineIndex) =>
+      lineIndex === index ? { ...line, [field]: value } : line));
+    setAnalysis(null);
+    setError('');
+  }
+
+  function addShipmentLine() {
+    setShipmentLines(current => [...current, {
+      lineId: `SUP-${current.length + 1}`,
+      supplierDescription: '',
+      expectedQuantity: '1',
+      receivedQuantity: '1',
+      suppliedSerials: ''
+    }]);
+    setAnalysis(null);
+  }
+
+  function removeShipmentLine(index) {
+    setShipmentLines(current => current.filter((_, lineIndex) => lineIndex !== index));
+    setAnalysis(null);
+  }
+
+  async function runAnalysis(event) {
+    event.preventDefault();
+    if (!supplierName.trim() || !organizationId || !shipmentLines.length) {
+      setError('Supplier, receiving organization, and at least one shipment line are required.');
+      return;
+    }
+    if (shipmentLines.some(line => !line.supplierDescription.trim())) {
+      setError('Every supplier line needs a product description.');
+      return;
+    }
+    setAnalyzing(true);
+    setError('');
+    try {
+      const result = await analyzeShipment({
+        supplierName: supplierName.trim(),
+        organizationId: Number(organizationId),
+        operatorInstructions: instructions.trim(),
+        allowGeneratedSerials,
+        lines: shipmentLines.map(line => ({
+          lineId: line.lineId,
+          supplierDescription: line.supplierDescription.trim(),
+          expectedQuantity: Number(line.expectedQuantity),
+          receivedQuantity: Number(line.receivedQuantity),
+          suppliedSerialNumbers: parseSerials(line.suppliedSerials)
+        }))
+      });
+      setAnalysis({
+        ...result,
+        lines: result.lines.map(line => ({
+          ...line,
+          matchedItemId: line.matchedItemId ? String(line.matchedItemId) : '',
+          expectedQuantity: String(line.expectedQuantity),
+          receivedQuantity: String(line.receivedQuantity),
+          serialText: line.proposedSerialNumbers.join(', ')
+        }))
+      });
+    } catch (analysisError) {
+      setError(analysisError.message);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  function updateRecommendation(index, patch) {
+    setAnalysis(current => ({
+      ...current,
+      lines: current.lines.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line)
+    }));
+    setError('');
+  }
+
+  function chooseMatchedItem(index, itemId) {
+    const item = items.find(candidate => candidate.id === Number(itemId));
+    updateRecommendation(index, {
+      matchedItemId: itemId,
+      matchedSku: item?.sku || null,
+      matchedItemName: item?.name || null,
+      matchConfidence: item ? 100 : 0
+    });
+  }
+
+  function prepareReceipt() {
+    const allSerials = analysis.lines.flatMap(line => parseSerials(line.serialText))
+      .map(serial => serial.toLowerCase());
+    if (new Set(allSerials).size !== allSerials.length) {
+      setError('Resolve duplicate serial numbers before preparing the receipt.');
+      return;
+    }
+    const prepared = [];
+    for (const line of analysis.lines) {
+      const item = items.find(candidate => candidate.id === Number(line.matchedItemId));
+      const quantity = Number(line.receivedQuantity);
+      const serialNumbers = parseSerials(line.serialText);
+      if (!item) {
+        setError(`Choose an internal item for ${line.lineId}.`);
+        return;
+      }
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        setError(`${line.lineId} needs a positive received quantity.`);
+        return;
+      }
+      if (item.serialControlled && serialNumbers.length !== quantity) {
+        setError(`${item.sku} needs exactly ${quantity} serial numbers.`);
+        return;
+      }
+      if (!item.serialControlled && serialNumbers.length) {
+        setError(`Remove serial numbers from non-serialized item ${item.sku}.`);
+        return;
+      }
+      prepared.push({ item, quantity, serialNumbers: serialNumbers.join(', ') });
+    }
+    onApply({ supplierName: supplierName.trim(), lines: prepared });
+  }
+
+  const blockedCount = analysis?.lines.filter(line => line.severity === 'BLOCKED').length || 0;
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="AGENT-READY WORKFLOW"
+        title="AI-assisted receiving copilot"
+        description="Match supplier descriptions, explain exceptions, and prepare a human-reviewed receipt draft."
+        action={<span className="copilot-provider"><Sparkles size={15}/> Local explainable provider</span>}
+      />
+
+      <section className="copilot-boundary">
+        <Sparkles size={20}/>
+        <div><strong>Honest portfolio mode</strong><p>This runnable version uses transparent matching rules, not a live LLM. Its REST workflow is ready to become an Oracle AI Agent Studio tool later.</p></div>
+        <span>NO AUTONOMOUS WRITES</span>
+      </section>
+
+      <form className="panel copilot-intake" onSubmit={runAnalysis}>
+        <div className="copilot-section-title">
+          <div><span className="eyebrow">1 · SUPPLIER INPUT</span><h2>Describe the incoming shipment</h2><p>All default values are fictional and safe for a public portfolio.</p></div>
+          <button type="button" className="secondary" onClick={addShipmentLine}><Plus size={15}/> Add supplier line</button>
+        </div>
+        <div className="copilot-context-grid">
+          <label><span>Supplier</span><input value={supplierName} onChange={event => setSupplierName(event.target.value)}/></label>
+          <label><span>Receiving organization</span><select value={organizationId} onChange={event => setOrganizationId(event.target.value)}>{organizations.map(organization => <option key={organization.id} value={organization.id}>{organization.code} · {organization.name}</option>)}</select></label>
+          <label className="instruction-field"><span>Future agent instructions</span><textarea value={instructions} onChange={event => setInstructions(event.target.value)}/></label>
+        </div>
+        <label className="copilot-checkbox"><input type="checkbox" checked={allowGeneratedSerials} onChange={event => setAllowGeneratedSerials(event.target.checked)}/><span><strong>Allow serial proposals</strong>Generate editable candidates when serialized units are missing supplier serials.</span></label>
+
+        <div className="copilot-input-scroll">
+          <table className="copilot-input-table">
+            <thead><tr><th>LINE</th><th>SUPPLIER DESCRIPTION</th><th>EXPECTED</th><th>RECEIVED</th><th>SUPPLIED SERIALS</th><th/></tr></thead>
+            <tbody>{shipmentLines.map((line, index) => (
+              <tr key={line.lineId}>
+                <td><strong>{line.lineId}</strong></td>
+                <td><input value={line.supplierDescription} onChange={event => updateShipmentLine(index, 'supplierDescription', event.target.value)}/></td>
+                <td><input type="number" min="0" max="10000" value={line.expectedQuantity} onChange={event => updateShipmentLine(index, 'expectedQuantity', event.target.value)}/></td>
+                <td><input type="number" min="0" max="10000" value={line.receivedQuantity} onChange={event => updateShipmentLine(index, 'receivedQuantity', event.target.value)}/></td>
+                <td><input value={line.suppliedSerials} onChange={event => updateShipmentLine(index, 'suppliedSerials', event.target.value)} placeholder="Comma-separated"/></td>
+                <td><button type="button" className="icon-button" aria-label={`Remove ${line.lineId}`} onClick={() => removeShipmentLine(index)}><Trash2 size={16}/></button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <div className="copilot-run-row">
+          <span><ShieldCheck size={15}/> Analysis creates recommendations only.</span>
+          <button className="primary" disabled={analyzing}><Sparkles size={16}/>{analyzing ? 'Analyzing shipment…' : 'Analyze shipment'}</button>
+        </div>
+      </form>
+
+      {error && <div className="error-banner copilot-error"><XCircle size={18}/>{error}</div>}
+
+      {analysis && (
+        <section className="panel copilot-results">
+          <div className="copilot-section-title result-title">
+            <div><span className="eyebrow">2 · REVIEW RECOMMENDATIONS</span><h2>{analysis.summary}</h2><p>Analysis {analysis.analysisId.slice(0, 8)} · {analysis.organizationCode}</p></div>
+            <span className={blockedCount ? 'result-pill blocked' : 'result-pill'}>{blockedCount ? `${blockedCount} blocked` : 'Ready for review'}</span>
+          </div>
+          <div className="copilot-results-scroll">
+            <table className="copilot-results-table">
+              <thead><tr><th>SUPPLIER LINE</th><th>INTERNAL ITEM</th><th>EXPECTED</th><th>RECEIVED</th><th>EDITABLE SERIAL ASSIGNMENTS</th><th>FINDING</th></tr></thead>
+              <tbody>{analysis.lines.map((line, index) => (
+                <tr key={line.lineId}>
+                  <td><strong>{line.lineId}</strong><small>{line.supplierDescription}</small></td>
+                  <td><select value={line.matchedItemId} onChange={event => chooseMatchedItem(index, event.target.value)}><option value="">Choose item</option>{items.map(item => <option value={item.id} key={item.id}>{item.sku} · {item.name}</option>)}</select><small>{line.matchConfidence}% match confidence</small></td>
+                  <td><input type="number" min="0" value={line.expectedQuantity} onChange={event => updateRecommendation(index, { expectedQuantity: event.target.value })}/></td>
+                  <td><input type="number" min="1" value={line.receivedQuantity} onChange={event => updateRecommendation(index, { receivedQuantity: event.target.value })}/></td>
+                  <td><textarea value={line.serialText} onChange={event => updateRecommendation(index, { serialText: event.target.value })} placeholder="No serials for non-controlled items"/><small>{parseSerials(line.serialText).length} serials proposed</small></td>
+                  <td><span className={`severity severity-${line.severity.toLowerCase()}`}>{line.severity}</span>{line.issues.length ? line.issues.map(issue => <small key={issue}>{issue}</small>) : <small>No exception detected</small>}<p>{line.recommendation}</p></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <div className="copilot-approval">
+            <div><strong>Human approval checkpoint</strong><p>Preparing a draft still does not save inventory. The next screen runs client validation, and Spring validates again before persistence.</p></div>
+            <button type="button" className="primary" onClick={prepareReceipt}><CheckCircle2 size={16}/> Prepare receipt draft</button>
+          </div>
+          <div className="guardrail-grid">{analysis.guardrails.map(rule => <span key={rule}><ShieldCheck size={14}/>{rule}</span>)}</div>
+        </section>
+      )}
+    </>
   );
 }
 
@@ -436,7 +717,7 @@ function ReceiptStatus({ receipt, navigate }) {
       <div className="status-layout">
         <section className="panel status-panel">
           <div className="panel-title"><div><h2>Receipt lines</h2><p>Validated inventory included in this receipt.</p></div><span>{receipt.lines.length} lines</span></div>
-          {receipt.lines.map(line => <div className="confirmed-line" key={line.itemId}><div className="mini-icon"><Box size={18}/></div><div><strong>{line.itemName}</strong><span>{line.sku}{line.serialNumber ? ` · ${line.serialNumber}` : ''}</span></div><b>{line.quantity} units</b></div>)}
+          {receipt.lines.map(line => <div className="confirmed-line" key={line.itemId}><div className="mini-icon"><Box size={18}/></div><div><strong>{line.itemName}</strong><span>{line.sku}{line.serialNumbers?.length ? ` · ${line.serialNumbers.join(', ')}` : ''}</span></div><b>{line.quantity} units</b></div>)}
         </section>
         <section className="panel status-panel">
           <div className="panel-title"><div><h2>Lifecycle & audit</h2><p>Traceable processing history.</p></div><Activity size={19}/></div>

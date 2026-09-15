@@ -39,8 +39,8 @@ public class Receipt {
         this.createdAt = createdAt;
     }
 
-    public void addLine(Item item, int quantity, String serialNumber) {
-        lines.add(new ReceiptLine(this, item, quantity, serialNumber));
+    public void addLine(Item item, int quantity, List<String> serialNumbers) {
+        lines.add(new ReceiptLine(this, item, quantity, serialNumbers));
     }
 
     public UUID getId() { return id; }
@@ -50,4 +50,3 @@ public class Receipt {
     public Instant getCreatedAt() { return createdAt; }
     public List<ReceiptLine> getLines() { return lines; }
 }
-

@@ -1,10 +1,10 @@
 const demoItems = [
-  { id: 1, sku: 'ITM-1001', name: 'Industrial Barcode Scanner', productCategory: 'Scanning & Mobility', description: 'Rugged handheld scanner with charging dock', availableQuantity: 42 },
-  { id: 2, sku: 'ITM-1002', name: 'Thermal Label Roll', productCategory: 'Packaging Supplies', description: 'Weather-resistant 4 × 6 inch labels', availableQuantity: 380 },
-  { id: 3, sku: 'ITM-1003', name: 'Warehouse Tablet', productCategory: 'Mobile Computing', description: '10-inch inventory floor tablet', availableQuantity: 18 },
-  { id: 4, sku: 'ITM-1004', name: 'RFID Reader Gateway', productCategory: 'Identification Systems', description: 'Fixed reader for dock-door inventory tracking', availableQuantity: 12 },
-  { id: 5, sku: 'ITM-1005', name: 'Protective Scanner Case', productCategory: 'Equipment Accessories', description: 'Impact-resistant scanner sleeve', availableQuantity: 96 },
-  { id: 6, sku: 'ITM-1006', name: 'Mobile Receipt Printer', productCategory: 'Printing & Labeling', description: 'Bluetooth thermal printer', availableQuantity: 27 }
+  { id: 1, sku: 'ITM-1001', name: 'Industrial Barcode Scanner', productCategory: 'Scanning & Mobility', description: 'Rugged handheld scanner with charging dock', availableQuantity: 42, serialControlled: true, serialPrefix: 'SCN' },
+  { id: 2, sku: 'ITM-1002', name: 'Thermal Label Roll', productCategory: 'Packaging Supplies', description: 'Weather-resistant 4 × 6 inch labels', availableQuantity: 380, serialControlled: false, serialPrefix: null },
+  { id: 3, sku: 'ITM-1003', name: 'Warehouse Tablet', productCategory: 'Mobile Computing', description: '10-inch inventory floor tablet', availableQuantity: 18, serialControlled: true, serialPrefix: 'TAB' },
+  { id: 4, sku: 'ITM-1004', name: 'RFID Reader Gateway', productCategory: 'Identification Systems', description: 'Fixed reader for dock-door inventory tracking', availableQuantity: 12, serialControlled: true, serialPrefix: 'RFID' },
+  { id: 5, sku: 'ITM-1005', name: 'Protective Scanner Case', productCategory: 'Equipment Accessories', description: 'Impact-resistant scanner sleeve', availableQuantity: 96, serialControlled: false, serialPrefix: null },
+  { id: 6, sku: 'ITM-1006', name: 'Mobile Receipt Printer', productCategory: 'Printing & Labeling', description: 'Bluetooth thermal printer', availableQuantity: 27, serialControlled: true, serialPrefix: 'PRN' }
 ];
 
 const demoOrganizations = [
@@ -65,7 +65,7 @@ export async function createReceipt(payload) {
       totalUnits: payload.lines.reduce((total, line) => total + Number(line.quantity), 0),
       lines: payload.lines.map(line => {
         const item = demoItems.find(candidate => candidate.id === line.itemId);
-        return { itemId: item.id, sku: item.sku, itemName: item.name, quantity: Number(line.quantity), serialNumber: line.serialNumber };
+        return { itemId: item.id, sku: item.sku, itemName: item.name, quantity: Number(line.quantity), serialNumbers: line.serialNumbers };
       }),
       auditHistory: [
         { status: 'RECEIVED', message: 'Receipt validated and persisted', timestamp: now.toISOString() },
@@ -173,6 +173,126 @@ export async function updateTransferOrder(id, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   }), 'Could not update transfer order');
+}
+
+function matchDemoItem(description) {
+  const value = description.toLowerCase();
+  const keywordMap = [
+    ['label', 2],
+    ['tablet', 3],
+    ['rfid', 4],
+    ['gateway', 4],
+    ['case', 5],
+    ['sleeve', 5],
+    ['printer', 6],
+    ['scanner', 1]
+  ];
+  const match = keywordMap.find(([keyword]) => value.includes(keyword));
+  return match ? demoItems.find(item => item.id === match[1]) : null;
+}
+
+function localDemoAnalysis(payload) {
+  const organization = demoOrganizations.find(candidate => candidate.id === Number(payload.organizationId));
+  const seenSerials = new Set();
+  const date = new Date().toISOString().slice(2, 10).replaceAll('-', '');
+  const lines = payload.lines.map((line, lineIndex) => {
+    const item = matchDemoItem(line.supplierDescription);
+    const proposed = line.suppliedSerialNumbers.map(serial => serial.trim()).filter(Boolean);
+    const issues = [];
+    let blocked = !item;
+    let review = false;
+
+    if (!item) {
+      issues.push('No reliable catalog match');
+    }
+    if (line.expectedQuantity !== line.receivedQuantity) {
+      issues.push(`${line.receivedQuantity > line.expectedQuantity ? 'over-receipt' : 'under-receipt'}: expected ${line.expectedQuantity} but received ${line.receivedQuantity}`);
+      review = true;
+    }
+    proposed.forEach(serial => {
+      const normalized = serial.toLowerCase();
+      if (seenSerials.has(normalized)) {
+        issues.push(`Duplicate supplied serial: ${serial}`);
+        blocked = true;
+      }
+      seenSerials.add(normalized);
+    });
+    if (item?.serialControlled && proposed.length < line.receivedQuantity) {
+      const missing = line.receivedQuantity - proposed.length;
+      const suppliedCount = proposed.length;
+      issues.push(`${missing} serial number${missing === 1 ? '' : 's'} missing`);
+      if (payload.allowGeneratedSerials) {
+        for (let index = 0; index < missing; index += 1) {
+          const sequence = String((lineIndex + 1) * 1000 + suppliedCount + index + 1).padStart(4, '0');
+          const generated = `${item.serialPrefix}-${organization.code.replace('ORG-', '')}-${date}-${sequence}`;
+          proposed.push(generated);
+          seenSerials.add(generated.toLowerCase());
+        }
+        review = true;
+      } else {
+        blocked = true;
+      }
+    } else if (item?.serialControlled && proposed.length > line.receivedQuantity) {
+      issues.push('More serial numbers were supplied than units received');
+      blocked = true;
+    } else if (item && !item.serialControlled && proposed.length) {
+      issues.push(`${item.sku} is not serial-controlled`);
+      blocked = true;
+    }
+    const severity = blocked ? 'BLOCKED' : review ? 'REVIEW' : 'READY';
+    return {
+      lineId: line.lineId,
+      supplierDescription: line.supplierDescription,
+      matchedItemId: item?.id || null,
+      matchedSku: item?.sku || null,
+      matchedItemName: item?.name || null,
+      matchConfidence: item ? (valueIncludesItemName(line.supplierDescription, item) ? 94 : 82) : 0,
+      expectedQuantity: Number(line.expectedQuantity),
+      receivedQuantity: Number(line.receivedQuantity),
+      severity,
+      issues,
+      recommendation: blocked
+        ? 'Correct the blocked fields and analyze again'
+        : review
+          ? 'Review the exception and proposed values before preparing the draft'
+          : 'Matched and validated; ready for human approval',
+      proposedSerialNumbers: proposed,
+      readyForReceipt: !blocked
+    };
+  });
+  const reviewCount = lines.filter(line => line.severity === 'REVIEW').length;
+  const blockedCount = lines.filter(line => line.severity === 'BLOCKED').length;
+  return {
+    analysisId: crypto.randomUUID(),
+    provider: 'LOCAL_EXPLAINABLE',
+    organizationCode: organization.code,
+    summary: `${lines.length} lines analyzed: ${lines.length - reviewCount - blockedCount} ready, ${reviewCount} need review, ${blockedCount} blocked`,
+    requiresHumanApproval: true,
+    lines,
+    guardrails: [
+      'Recommendations never write inventory directly',
+      'Every product match and generated serial remains editable',
+      'Spring business rules revalidate the final receipt',
+      'A human must approve the draft before persistence'
+    ]
+  };
+}
+
+function valueIncludesItemName(description, item) {
+  const value = description.toLowerCase();
+  return item.name.toLowerCase().split(' ').filter(word => word.length > 3).some(word => value.includes(word));
+}
+
+export async function analyzeShipment(payload) {
+  if (isDemo) {
+    await new Promise(resolve => setTimeout(resolve, 450));
+    return localDemoAnalysis(payload);
+  }
+  return readJson(await fetch('/api/copilot/receiving/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }), 'Could not analyze the supplier shipment');
 }
 
 export { demoItems, demoOrganizations };

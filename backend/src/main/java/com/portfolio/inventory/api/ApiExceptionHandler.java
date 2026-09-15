@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -39,6 +40,12 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> handleStaleTransferOrder(StaleTransferOrderException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("STALE_UPDATE",
                 exception.getMessage(), Map.of(), Instant.now()));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ResponseEntity<ApiError> handleIntegrityConflict(DataIntegrityViolationException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("DATA_CONFLICT",
+                "A serial number or business identifier already exists", Map.of(), Instant.now()));
     }
 
     record ApiError(String code, String message, Map<String, String> details, Instant timestamp) {}

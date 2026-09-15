@@ -4,6 +4,10 @@ This guide explains how the project works, why each layer exists, and how to
 describe the design in an interview. Read it once end to end, then practice the
 short explanations near the end aloud.
 
+The AI-assisted workflow is documented separately in
+[AI_COPILOT_GUIDE.md](AI_COPILOT_GUIDE.md), including its honest provider
+boundary, end-to-end flow, test matrix, limitations, and interview script.
+
 ## 1. The project in one sentence
 
 The application lets a receiving user search a fictional product catalog, build
@@ -96,17 +100,19 @@ objects. This keeps the parent-child link consistent in memory.
 ### Receipt line
 
 [`ReceiptLine.java`](../backend/src/main/java/com/portfolio/inventory/domain/ReceiptLine.java)
-connects a receipt to an item and records the received quantity and optional
-serial number.
+connects a receipt to an item and records the received quantity. Serialized
+units are children in
+[`ReceiptLineSerial.java`](../backend/src/main/java/com/portfolio/inventory/domain/ReceiptLineSerial.java),
+so a quantity of three can correctly store three serial numbers.
 
 The two `@ManyToOne` relationships create foreign-key-backed references to the
 receipt and item. Both are lazy because a line does not always need the full
 parent or item record. `optional = false` reflects that a valid line cannot
 exist without either reference.
 
-The database adds a positive quantity check and a uniqueness constraint for a
-non-null serial inside one receipt. The service also rejects duplicate serials
-case-insensitively before reaching the database, producing a clearer API error.
+The database adds a positive quantity check and a case-insensitive global unique
+index for serial numbers. The service also rejects duplicate serials before
+reaching the database, producing a clearer API error.
 
 This is defense in depth:
 
@@ -141,6 +147,10 @@ safety net. The receipt ID index speeds up loading every line for one receipt.
 loads only synthetic products. Flyway runs migrations in version order and
 records completed versions in its schema history table. This makes database
 creation deterministic across developer laptops and CI environments.
+
+[`V4__add_serial_control_and_receiving_copilot.sql`](../backend/src/main/resources/db/migration/V4__add_serial_control_and_receiving_copilot.sql)
+adds fictional serial policies and aliases, migrates legacy serial values, and
+creates one serial row per physical unit.
 
 Why Flyway instead of `ddl-auto=create`? SQL migrations are reviewable,
 versioned, reproducible, and safe to evolve. Hibernate is configured with
@@ -231,6 +241,8 @@ Before sending JSON, the component checks:
 - at least one line exists;
 - every quantity is positive;
 - normalized non-empty serial numbers are unique.
+- every controlled item has one serial per unit;
+- non-controlled items have no serials.
 
 Normalization uses `trim().toLowerCase()` so `" ABC "` and `"abc"` are treated
 as the same serial. Client validation is for speed and usability, not security;
@@ -246,8 +258,8 @@ Content-Type: application/json
 ```
 
 The payload contains `supplierName` and line objects with `itemId`, `quantity`,
-and optional `serialNumber`. The UI sends item IDs instead of trusting product
-names or prices supplied by the browser.
+and a `serialNumbers` array. The UI sends item IDs instead of trusting product
+names supplied by the browser.
 
 ### Step 4: Spring deserializes and validates
 
@@ -259,7 +271,8 @@ requires a nonblank supplier and a nonempty list. `List<@Valid ...>` cascades
 validation into every line.
 
 [`CreateReceiptLineRequest.java`](../backend/src/main/java/com/portfolio/inventory/api/dto/CreateReceiptLineRequest.java)
-requires an item ID, restricts quantity to 1–10,000, and caps serial length.
+requires an item ID, restricts quantity to 1–10,000, and validates the serial
+array and individual serial lengths.
 Java records are a good fit because request DTOs are immutable data carriers.
 
 ### Step 5: the service enforces cross-line rules

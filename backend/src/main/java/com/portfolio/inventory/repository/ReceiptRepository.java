@@ -10,4 +10,3 @@ public interface ReceiptRepository extends JpaRepository<Receipt, UUID> {
     @EntityGraph(attributePaths = {"lines", "lines.item"})
     Optional<Receipt> findDetailedById(UUID id);
 }
-

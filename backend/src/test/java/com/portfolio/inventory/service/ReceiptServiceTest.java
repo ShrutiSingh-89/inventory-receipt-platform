@@ -16,6 +16,7 @@ import com.portfolio.inventory.event.ReceiptCreatedEvent;
 import com.portfolio.inventory.exception.BusinessValidationException;
 import com.portfolio.inventory.exception.ResourceNotFoundException;
 import com.portfolio.inventory.repository.ItemRepository;
+import com.portfolio.inventory.repository.ReceiptLineSerialRepository;
 import com.portfolio.inventory.repository.ReceiptRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 class ReceiptServiceTest {
     @Mock ReceiptRepository receiptRepository;
     @Mock ItemRepository itemRepository;
+    @Mock ReceiptLineSerialRepository serialRepository;
     @Mock ReceiptEventPublisher eventPublisher;
 
     private ReceiptService service;
@@ -40,7 +42,7 @@ class ReceiptServiceTest {
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2026-01-15T10:30:00Z"), ZoneOffset.UTC);
-        service = new ReceiptService(receiptRepository, itemRepository, eventPublisher, clock);
+        service = new ReceiptService(receiptRepository, itemRepository, serialRepository, eventPublisher, clock);
     }
 
     @Test
@@ -51,7 +53,7 @@ class ReceiptServiceTest {
         when(receiptRepository.saveAndFlush(any(Receipt.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ReceiptResponse result = service.create(new CreateReceiptRequest("Northwind Supply", List.of(
-                new CreateReceiptLineRequest(1L, 3, "SCN-9001"))));
+                new CreateReceiptLineRequest(1L, 3, List.of()))));
 
         assertThat(result.receiptNumber()).startsWith("RCV-20260115-103000-");
         assertThat(result.totalUnits()).isEqualTo(3);
@@ -65,8 +67,8 @@ class ReceiptServiceTest {
     @Test
     void rejectsDuplicateSerialNumbersIgnoringCaseAndWhitespace() {
         CreateReceiptRequest request = new CreateReceiptRequest("Supplier", List.of(
-                new CreateReceiptLineRequest(1L, 1, " ABC-123 "),
-                new CreateReceiptLineRequest(2L, 1, "abc-123")));
+                new CreateReceiptLineRequest(1L, 1, List.of(" ABC-123 ")),
+                new CreateReceiptLineRequest(2L, 1, List.of("abc-123"))));
 
         assertThatThrownBy(() -> service.create(request))
                 .isInstanceOf(BusinessValidationException.class)
@@ -80,9 +82,35 @@ class ReceiptServiceTest {
         when(itemRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.create(new CreateReceiptRequest("Supplier", List.of(
-                new CreateReceiptLineRequest(99L, 2, null)))))
+                new CreateReceiptLineRequest(99L, 2, List.of())))))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Item 99 was not found");
         verify(eventPublisher, never()).publish(any());
+    }
+
+    @Test
+    void requiresOneSerialForEachUnitOfASerialControlledItem() {
+        Item scanner = new Item(1L, "ITM-1001", "Industrial Barcode Scanner",
+                "Scanning & Mobility", "Rugged scanner", 42, true, "SCN", "handheld scanner");
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(scanner));
+
+        assertThatThrownBy(() -> service.create(new CreateReceiptRequest("Supplier", List.of(
+                new CreateReceiptLineRequest(1L, 2, List.of("SCN-001"))))))
+                .isInstanceOf(BusinessValidationException.class)
+                .hasMessageContaining("exactly one serial number");
+        verify(receiptRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void rejectsSerialThatAlreadyExistsInInventory() {
+        Item scanner = new Item(1L, "ITM-1001", "Industrial Barcode Scanner",
+                "Scanning & Mobility", "Rugged scanner", 42, true, "SCN", "handheld scanner");
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(scanner));
+        when(serialRepository.existsBySerialNumberIgnoreCase("SCN-001")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.create(new CreateReceiptRequest("Supplier", List.of(
+                new CreateReceiptLineRequest(1L, 1, List.of("SCN-001"))))))
+                .isInstanceOf(BusinessValidationException.class)
+                .hasMessageContaining("already exists");
     }
 }

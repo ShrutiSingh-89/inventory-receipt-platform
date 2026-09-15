@@ -22,7 +22,8 @@ public class ItemService {
                         normalized, normalized, normalized)
                 .stream()
                 .map(item -> new ItemResponse(item.getId(), item.getSku(), item.getName(), item.getProductCategory(),
-                        item.getDescription(), item.getAvailableQuantity()))
+                        item.getDescription(), item.getAvailableQuantity(), item.isSerialControlled(),
+                        item.getSerialPrefix()))
                 .toList();
     }
 }

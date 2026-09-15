@@ -12,11 +12,13 @@ import com.portfolio.inventory.event.ReceiptCreatedEvent;
 import com.portfolio.inventory.exception.BusinessValidationException;
 import com.portfolio.inventory.exception.ResourceNotFoundException;
 import com.portfolio.inventory.repository.ItemRepository;
+import com.portfolio.inventory.repository.ReceiptLineSerialRepository;
 import com.portfolio.inventory.repository.ReceiptRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -32,18 +34,20 @@ public class ReceiptService {
 
     private final ReceiptRepository receiptRepository;
     private final ItemRepository itemRepository;
+    private final ReceiptLineSerialRepository serialRepository;
     private final ReceiptEventPublisher eventPublisher;
     private final Clock clock;
 
     public ReceiptService(ReceiptRepository receiptRepository, ItemRepository itemRepository,
-                          ReceiptEventPublisher eventPublisher) {
-        this(receiptRepository, itemRepository, eventPublisher, Clock.systemUTC());
+                          ReceiptLineSerialRepository serialRepository, ReceiptEventPublisher eventPublisher) {
+        this(receiptRepository, itemRepository, serialRepository, eventPublisher, Clock.systemUTC());
     }
 
     ReceiptService(ReceiptRepository receiptRepository, ItemRepository itemRepository,
-                   ReceiptEventPublisher eventPublisher, Clock clock) {
+                   ReceiptLineSerialRepository serialRepository, ReceiptEventPublisher eventPublisher, Clock clock) {
         this.receiptRepository = receiptRepository;
         this.itemRepository = itemRepository;
+        this.serialRepository = serialRepository;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
@@ -60,7 +64,10 @@ public class ReceiptService {
         for (CreateReceiptLineRequest line : request.lines()) {
             Item item = itemRepository.findById(line.itemId())
                     .orElseThrow(() -> new ResourceNotFoundException("Item " + line.itemId() + " was not found"));
-            receipt.addLine(item, line.quantity(), normalizeSerial(line.serialNumber()));
+            List<String> serialNumbers = normalizeSerials(line.serialNumbers());
+            validateSerialPolicy(item, line.quantity(), serialNumbers);
+            validateSerialsAreNew(serialNumbers);
+            receipt.addLine(item, line.quantity(), serialNumbers);
         }
 
         Receipt saved = receiptRepository.saveAndFlush(receipt);
@@ -80,22 +87,46 @@ public class ReceiptService {
     private void validateUniqueSerialNumbers(List<CreateReceiptLineRequest> lines) {
         Set<String> serials = new HashSet<>();
         for (CreateReceiptLineRequest line : lines) {
-            String serial = normalizeSerial(line.serialNumber());
-            if (serial != null && !serials.add(serial.toLowerCase(Locale.ROOT))) {
-                throw new BusinessValidationException("Duplicate serial number: " + serial);
+            for (String serial : normalizeSerials(line.serialNumbers())) {
+                if (!serials.add(serial.toLowerCase(Locale.ROOT))) {
+                    throw new BusinessValidationException("Duplicate serial number: " + serial);
+                }
             }
         }
     }
 
-    private String normalizeSerial(String serialNumber) {
-        if (serialNumber == null || serialNumber.isBlank()) return null;
-        return serialNumber.trim();
+    private List<String> normalizeSerials(List<String> serialNumbers) {
+        if (serialNumbers == null) return List.of();
+        List<String> normalized = new ArrayList<>();
+        for (String serialNumber : serialNumbers) {
+            if (serialNumber != null && !serialNumber.isBlank()) normalized.add(serialNumber.trim());
+        }
+        return normalized;
+    }
+
+    private void validateSerialPolicy(Item item, int quantity, List<String> serialNumbers) {
+        if (item.isSerialControlled() && serialNumbers.size() != quantity) {
+            throw new BusinessValidationException(
+                    item.getSku() + " requires exactly one serial number for each received unit");
+        }
+        if (!item.isSerialControlled() && !serialNumbers.isEmpty()) {
+            throw new BusinessValidationException(item.getSku() + " is not serial-controlled");
+        }
+    }
+
+    private void validateSerialsAreNew(List<String> serialNumbers) {
+        for (String serial : serialNumbers) {
+            if (serialRepository.existsBySerialNumberIgnoreCase(serial)) {
+                throw new BusinessValidationException("Serial number already exists: " + serial);
+            }
+        }
     }
 
     private ReceiptResponse toResponse(Receipt receipt) {
         List<ReceiptLineResponse> lines = receipt.getLines().stream()
                 .map(line -> new ReceiptLineResponse(line.getItem().getId(), line.getItem().getSku(),
-                        line.getItem().getName(), line.getQuantity(), line.getSerialNumber()))
+                        line.getItem().getName(), line.getQuantity(), line.getSerialNumbers().stream()
+                                .map(serial -> serial.getSerialNumber()).toList()))
                 .toList();
         int totalUnits = lines.stream().mapToInt(ReceiptLineResponse::quantity).sum();
         List<AuditEntryResponse> history = List.of(
@@ -106,4 +137,3 @@ public class ReceiptService {
                 receipt.getStatus(), receipt.getCreatedAt(), totalUnits, lines, history);
     }
 }
-

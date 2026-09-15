@@ -6,4 +6,6 @@ public record ItemResponse(
         String name,
         String productCategory,
         String description,
-        int availableQuantity) {}
+        int availableQuantity,
+        boolean serialControlled,
+        String serialPrefix) {}

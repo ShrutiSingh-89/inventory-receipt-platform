@@ -14,6 +14,11 @@ with React, Java Spring Boot, PostgreSQL, Kafka, and Docker.
 - Create inventory transfer orders between fictional organizations
 - View and edit every transfer request in an inline-editable table
 - Prevent same-organization transfers, unavailable quantities, and stale edits
+- Analyze synthetic supplier shipment lines in an AI-ready receiving copilot
+- Match supplier descriptions to internal items with visible confidence
+- Detect quantity, product-match, and serial-number exceptions
+- Propose editable serial assignments without autonomous inventory writes
+- Require human review and Spring validation before persistence
 
 ## Tech Stack
 React | Java | Spring Boot | Spring Data JPA | PostgreSQL | Kafka | Docker | JUnit | Mockito
@@ -23,6 +28,9 @@ React | Java | Spring Boot | Spring Data JPA | PostgreSQL | Kafka | Docker | JUn
 ```mermaid
 flowchart LR
   U[User] --> R[React UI]
+  R --> A[AI-ready Receiving Copilot]
+  A --> H[Human Review]
+  H --> S
   R -->|REST API| S[Spring Boot API]
   S --> V[Validation and Business Rules]
   V --> D[(PostgreSQL)]
@@ -62,6 +70,7 @@ Swagger UI at [http://localhost:8080/swagger-ui.html](http://localhost:8080/swag
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/items?query=scanner` | Search items by SKU or name |
+| `POST` | `/api/copilot/receiving/analyze` | Match supplier lines, explain exceptions, and propose serial assignments |
 | `POST` | `/api/receipts` | Validate and create an inventory receipt |
 | `GET` | `/api/receipts/{id}` | Read receipt status, lines, and audit history |
 | `GET` | `/api/inventory-organizations` | List valid source and destination organizations |
@@ -77,8 +86,8 @@ Example request:
   "lines": [
     {
       "itemId": 1,
-      "quantity": 8,
-      "serialNumber": "SCN-B2409-01"
+      "quantity": 2,
+      "serialNumbers": ["SCN-B2409-01", "SCN-B2409-02"]
     }
   ]
 }
@@ -93,6 +102,9 @@ event to the three-partition `receipt-created` Kafka topic. The included
 - A supplier and at least one receipt line are required.
 - Quantities must be between 1 and 10,000 units.
 - Non-empty serial numbers must be unique within a receipt (case-insensitive).
+- Serial-controlled items require exactly one serial number per received unit.
+- Non-serial-controlled items reject accidental serial assignments.
+- A serial number already received on an earlier receipt cannot be reused.
 - Every item identifier must reference an existing inventory item.
 - Transfer source and destination organizations must be different.
 - A transfer quantity cannot exceed the selected item's available inventory.
@@ -104,8 +116,10 @@ event to the three-partition `receipt-created` Kafka topic. The included
 
 The backend service layer is unit-tested with JUnit 5, Mockito, and AssertJ. The
 tests cover successful persistence/event publishing, normalized item search,
-duplicate serial rejection, missing inventory items, transfer creation and
-updates, invalid organization pairs, unavailable quantities, and stale edits.
+per-unit serial policy, duplicate and previously received serial rejection,
+copilot catalog matching, unknown products, missing serial behavior, transfer
+creation and updates, invalid organization pairs, unavailable quantities, and
+stale edits.
 
 ```bash
 cd backend
@@ -147,12 +161,27 @@ concepts and invented identifiers. See
 [Sanitization and domain boundaries](docs/SANITIZATION.md) for the rules used to
 keep the project safe for a public portfolio.
 
+### AI boundary
+
+The included copilot runs with a deterministic `LOCAL_EXPLAINABLE` provider so
+the repository is runnable without credentials and every recommendation can be
+tested exactly. It demonstrates the agent workflow, tool contract, editable
+review step, and safety controls; it does **not** claim that a generative model
+or Oracle AI Agent Studio is currently connected. An approved agent can later
+call the same REST endpoints as tools.
+
 ## Interview preparation
 
 Read the [detailed code and interview guide](docs/INTERVIEW_GUIDE.md) for the
 end-to-end request flow, file-by-file reasoning, design tradeoffs, testing
 strategy, and suggested answers to common React, Spring, PostgreSQL, Kafka, and
 Docker interview questions.
+
+For the new assistant workflow, follow the
+[AI copilot implementation and testing guide](docs/AI_COPILOT_GUIDE.md). It
+explains the demo step by step, lists testable scenarios, and clearly separates
+what this project proves from capabilities that require a real model, security
+layer, or production inventory system.
 
 ## License
 
