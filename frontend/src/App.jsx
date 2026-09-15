@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Activity, ArrowRight, Box, Check, CheckCircle2, ChevronRight, CircleDot,
   Clock3, FileCheck2, LayoutGrid, PackageCheck, Plus, Radio, Search,
-  ShieldCheck, Trash2, XCircle
+  RotateCcw, Save, ShieldCheck, Trash2, Truck, XCircle
 } from 'lucide-react';
-import { createReceipt, demoItems, isDemo, searchItems } from './api';
+import {
+  createReceipt, createTransferOrder, demoItems, isDemo, listOrganizations,
+  listTransferOrders, searchItems, transferOrderStatuses, updateTransferOrder
+} from './api';
 
 const sampleReceipt = {
   id: '59ca892e-9cbe-4e6c-92a0-d970848d336c',
@@ -47,7 +50,7 @@ function App() {
     <div className="app-shell">
       <Sidebar view={view} navigate={navigate} />
       <main className="main">
-        <Topbar />
+        <Topbar view={view} />
         <div className="page-wrap">
           {view === 'inventory' && <InventorySearch onAdd={addItem} />}
           {view === 'create' && (
@@ -58,6 +61,7 @@ function App() {
             />
           )}
           {view === 'status' && <ReceiptStatus receipt={receipt || (isDemo ? sampleReceipt : null)} navigate={navigate} />}
+          {view === 'transfers' && <TransferOrders />}
           {view === 'events' && <EventMonitor receipt={receipt || sampleReceipt} />}
         </div>
       </main>
@@ -70,6 +74,7 @@ function Sidebar({ view, navigate }) {
     ['inventory', LayoutGrid, 'Inventory'],
     ['create', Plus, 'New receipt'],
     ['status', FileCheck2, 'Receipt status'],
+    ['transfers', Truck, 'Transfer orders'],
     ['events', Radio, 'Event monitor']
   ];
   return (
@@ -92,10 +97,10 @@ function Sidebar({ view, navigate }) {
   );
 }
 
-function Topbar() {
+function Topbar({ view }) {
   return (
     <header className="topbar">
-      <div><span className="crumb-muted">Central Distribution</span><ChevronRight size={15} /><strong>Receiving</strong></div>
+      <div><span className="crumb-muted">Central Distribution</span><ChevronRight size={15} /><strong>{view === 'transfers' ? 'Inventory transfers' : 'Receiving'}</strong></div>
       <span className="environment"><CircleDot size={13} /> Local environment</span>
     </header>
   );
@@ -226,6 +231,194 @@ function CreateReceipt({ initialLines, validationDemo, onCreated }) {
         </aside>
       </div>
     </form>
+  );
+}
+
+function defaultNeededBy() {
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return date.toISOString().slice(0, 10);
+}
+
+function toTransferDraft(order) {
+  return {
+    sourceOrganizationId: String(order.sourceOrganizationId),
+    destinationOrganizationId: String(order.destinationOrganizationId),
+    itemId: String(order.itemId),
+    quantity: String(order.quantity),
+    requestedBy: order.requestedBy,
+    neededBy: order.neededBy,
+    status: order.status,
+    version: order.version
+  };
+}
+
+function TransferOrders() {
+  const [organizations, setOrganizations] = useState([]);
+  const [items, setItems] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [drafts, setDrafts] = useState({});
+  const [form, setForm] = useState({
+    sourceOrganizationId: '1', destinationOrganizationId: '2', itemId: '1',
+    quantity: '6', requestedBy: 'Sam Kim', neededBy: defaultNeededBy()
+  });
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [savingId, setSavingId] = useState(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([listOrganizations(), searchItems(''), listTransferOrders()])
+      .then(([organizationData, itemData, orderData]) => {
+        if (!active) return;
+        setOrganizations(organizationData);
+        setItems(itemData);
+        setOrders(orderData);
+        setDrafts(Object.fromEntries(orderData.map(order => [order.id, toTransferDraft(order)])));
+        if (organizationData.length > 1 && itemData.length) {
+          setForm(current => ({ ...current,
+            sourceOrganizationId: String(organizationData[0].id),
+            destinationOrganizationId: String(organizationData[1].id),
+            itemId: String(itemData[0].id)
+          }));
+        }
+      })
+      .catch(loadError => setError(loadError.message))
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  function payloadFrom(values, includeStatus = false) {
+    const payload = {
+      sourceOrganizationId: Number(values.sourceOrganizationId),
+      destinationOrganizationId: Number(values.destinationOrganizationId),
+      itemId: Number(values.itemId),
+      quantity: Number(values.quantity),
+      requestedBy: values.requestedBy.trim(),
+      neededBy: values.neededBy
+    };
+    if (includeStatus) {
+      payload.status = values.status;
+      payload.version = Number(values.version);
+    }
+    return payload;
+  }
+
+  function validateTransfer(payload) {
+    if (payload.sourceOrganizationId === payload.destinationOrganizationId) {
+      return 'Source and destination organizations must be different.';
+    }
+    if (!payload.requestedBy) return 'Requested by is required.';
+    if (!Number.isInteger(payload.quantity) || payload.quantity < 1 || payload.quantity > 10000) {
+      return 'Quantity must be a whole number between 1 and 10,000.';
+    }
+    const item = items.find(candidate => candidate.id === payload.itemId);
+    if (item && payload.quantity > item.availableQuantity) {
+      return `Only ${item.availableQuantity} units of ${item.sku} are currently available.`;
+    }
+    if (!payload.neededBy) return 'Needed-by date is required.';
+    if (payload.neededBy < new Date().toISOString().slice(0, 10)) return 'Needed-by date cannot be in the past.';
+    return '';
+  }
+
+  async function submitTransfer(event) {
+    event.preventDefault();
+    const payload = payloadFrom(form);
+    const validationError = validateTransfer(payload);
+    if (validationError) { setError(validationError); setMessage(''); return; }
+    setCreating(true); setError(''); setMessage('');
+    try {
+      const created = await createTransferOrder(payload);
+      setOrders(current => [created, ...current]);
+      setDrafts(current => ({ ...current, [created.id]: toTransferDraft(created) }));
+      setForm(current => ({ ...current, quantity: '1', neededBy: defaultNeededBy() }));
+      setMessage(`${created.orderNumber} was created and added to the editable table.`);
+    } catch (submitError) { setError(submitError.message); }
+    finally { setCreating(false); }
+  }
+
+  function updateDraft(id, field, value) {
+    setDrafts(current => ({ ...current, [id]: { ...current[id], [field]: value } }));
+    setMessage(''); setError('');
+  }
+
+  function resetDraft(order) {
+    setDrafts(current => ({ ...current, [order.id]: toTransferDraft(order) }));
+    setMessage(''); setError('');
+  }
+
+  async function saveOrder(order) {
+    const payload = payloadFrom(drafts[order.id], true);
+    const validationError = validateTransfer(payload);
+    if (validationError) { setError(validationError); setMessage(''); return; }
+    setSavingId(order.id); setError(''); setMessage('');
+    try {
+      const updated = await updateTransferOrder(order.id, payload);
+      setOrders(current => current.map(candidate => candidate.id === updated.id ? updated : candidate));
+      setDrafts(current => ({ ...current, [updated.id]: toTransferDraft(updated) }));
+      setMessage(`${updated.orderNumber} was saved.`);
+    } catch (saveError) { setError(saveError.message); }
+    finally { setSavingId(null); }
+  }
+
+  const requestedCount = orders.filter(order => order.status === 'REQUESTED').length;
+  const activeCount = orders.filter(order => ['APPROVED', 'IN_TRANSIT'].includes(order.status)).length;
+  const totalUnits = orders.reduce((total, order) => total + order.quantity, 0);
+
+  return (
+    <>
+      <PageHeader eyebrow="INTER-ORGANIZATION TRANSFER" title="Transfer order requests" description="Move fictional inventory between organizations and maintain every request inline." action={<span className="draft-pill"><Truck size={15}/> Controlled inventory movement</span>} />
+      <div className="transfer-metrics">
+        <Metric value={String(orders.length)} label="All requests" detail="Visible in the table below" />
+        <Metric value={String(requestedCount)} label="Awaiting approval" detail={`${activeCount} approved or in transit`} />
+        <Metric value={String(totalUnits)} label="Units requested" detail="Across all transfer orders" />
+      </div>
+
+      <form className="panel transfer-create" onSubmit={submitTransfer}>
+        <div className="transfer-create-heading"><div><span className="eyebrow">NEW REQUEST</span><h2>Create a transfer order</h2><p>Select two different organizations, a product, and the required quantity.</p></div><button className="primary" disabled={creating || loading}><Plus size={16}/>{creating ? 'Creating…' : 'Create request'}</button></div>
+        <div className="transfer-form-grid">
+          <label><span>Source organization</span><select value={form.sourceOrganizationId} onChange={event => setForm({ ...form, sourceOrganizationId: event.target.value })}>{organizations.map(organization => <option value={organization.id} key={organization.id}>{organization.code} · {organization.name}</option>)}</select></label>
+          <label><span>Destination organization</span><select value={form.destinationOrganizationId} onChange={event => setForm({ ...form, destinationOrganizationId: event.target.value })}>{organizations.map(organization => <option value={organization.id} key={organization.id}>{organization.code} · {organization.name}</option>)}</select></label>
+          <label><span>Item / product</span><select value={form.itemId} onChange={event => setForm({ ...form, itemId: event.target.value })}>{items.map(item => <option value={item.id} key={item.id}>{item.sku} · {item.name}</option>)}</select></label>
+          <label><span>Quantity</span><input type="number" min="1" max="10000" value={form.quantity} onChange={event => setForm({ ...form, quantity: event.target.value })}/></label>
+          <label><span>Needed by</span><input type="date" min={new Date().toISOString().slice(0, 10)} value={form.neededBy} onChange={event => setForm({ ...form, neededBy: event.target.value })}/></label>
+          <label><span>Requested by</span><input value={form.requestedBy} onChange={event => setForm({ ...form, requestedBy: event.target.value })}/></label>
+        </div>
+      </form>
+
+      {error && <div className="error-banner transfer-banner"><XCircle size={18}/>{error}</div>}
+      {message && <div className="success-banner"><CheckCircle2 size={18}/>{message}</div>}
+
+      <section className="panel transfer-table-panel">
+        <div className="table-title"><div><h2>All transfer requests</h2><p>Every business field is editable. Save commits one row through the REST API.</p></div><span>{loading ? 'Loading…' : `${orders.length} requests`}</span></div>
+        <div className="transfer-table-scroll">
+          <table className="transfer-table">
+            <thead><tr><th>ORDER</th><th>SOURCE</th><th>DESTINATION</th><th>ITEM / PRODUCT</th><th>QTY</th><th>NEEDED BY</th><th>STATUS</th><th>REQUESTED BY</th><th>ACTIONS</th></tr></thead>
+            <tbody>
+              {orders.map(order => {
+                const draft = drafts[order.id] || toTransferDraft(order);
+                return (
+                  <tr key={order.id}>
+                    <td><strong className="order-number">{order.orderNumber}</strong><small>v{draft.version}</small></td>
+                    <td><select aria-label={`Source for ${order.orderNumber}`} value={draft.sourceOrganizationId} onChange={event => updateDraft(order.id, 'sourceOrganizationId', event.target.value)}>{organizations.map(organization => <option value={organization.id} key={organization.id}>{organization.code}</option>)}</select></td>
+                    <td><select aria-label={`Destination for ${order.orderNumber}`} value={draft.destinationOrganizationId} onChange={event => updateDraft(order.id, 'destinationOrganizationId', event.target.value)}>{organizations.map(organization => <option value={organization.id} key={organization.id}>{organization.code}</option>)}</select></td>
+                    <td><select className="product-select" aria-label={`Item for ${order.orderNumber}`} value={draft.itemId} onChange={event => updateDraft(order.id, 'itemId', event.target.value)}>{items.map(item => <option value={item.id} key={item.id}>{item.sku} · {item.name}</option>)}</select></td>
+                    <td><input className="quantity-input" aria-label={`Quantity for ${order.orderNumber}`} type="number" min="1" max="10000" value={draft.quantity} onChange={event => updateDraft(order.id, 'quantity', event.target.value)}/></td>
+                    <td><input aria-label={`Needed by for ${order.orderNumber}`} type="date" min={new Date().toISOString().slice(0, 10)} value={draft.neededBy} onChange={event => updateDraft(order.id, 'neededBy', event.target.value)}/></td>
+                    <td><select className={`status-select status-${draft.status.toLowerCase()}`} aria-label={`Status for ${order.orderNumber}`} value={draft.status} onChange={event => updateDraft(order.id, 'status', event.target.value)}>{transferOrderStatuses.map(status => <option value={status} key={status}>{status.replace('_', ' ')}</option>)}</select></td>
+                    <td><input aria-label={`Requested by for ${order.orderNumber}`} value={draft.requestedBy} onChange={event => updateDraft(order.id, 'requestedBy', event.target.value)}/></td>
+                    <td><div className="row-actions"><button type="button" className="save-row" onClick={() => saveOrder(order)} disabled={savingId === order.id}><Save size={14}/>{savingId === order.id ? 'Saving' : 'Save'}</button><button type="button" className="reset-row" aria-label={`Reset ${order.orderNumber}`} onClick={() => resetDraft(order)}><RotateCcw size={14}/></button></div></td>
+                  </tr>
+                );
+              })}
+              {!loading && !orders.length && <tr><td colSpan="9" className="table-empty">No transfer requests exist yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
   );
 }
 

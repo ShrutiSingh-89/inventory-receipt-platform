@@ -14,6 +14,8 @@ without reproducing any employer's implementation.
 - Database and event schemas were designed specifically for this portfolio.
 - API paths, validation limits, statuses, and business rules are project-specific.
 - The UI was designed from scratch and does not reproduce an enterprise screen.
+- Organization codes, warehouse names, locations, transfer numbers, requesters,
+  dates, statuses, and quantities are invented for this repository.
 
 ## What is deliberately excluded
 
@@ -33,6 +35,6 @@ Use this wording:
 > schema, data, event contract, and UI are fictional and vendor-neutral.
 
 Discuss the transferable problem—validating inbound receipt lines, identifying
-items, persisting an aggregate, and notifying downstream services—without
-describing how a previous employer implemented it.
-
+items, coordinating inventory movement between organizations, persisting an
+aggregate, and notifying downstream services—without describing how a previous
+employer implemented it.

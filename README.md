@@ -1,7 +1,7 @@
 # Inventory Receipt Platform
 
-A full-stack inventory-receipt application built with React, Java Spring Boot,
-PostgreSQL, Kafka, and Docker.
+A full-stack inventory receipt and inter-organization transfer application built
+with React, Java Spring Boot, PostgreSQL, Kafka, and Docker.
 
 ## Features
 - Search inventory items
@@ -11,6 +11,9 @@ PostgreSQL, Kafka, and Docker.
 - Persist receipts and receipt lines
 - Publish receipt-created events through Kafka
 - View receipt status and audit history
+- Create inventory transfer orders between fictional organizations
+- View and edit every transfer request in an inline-editable table
+- Prevent same-organization transfers, unavailable quantities, and stale edits
 
 ## Tech Stack
 React | Java | Spring Boot | Spring Data JPA | PostgreSQL | Kafka | Docker | JUnit | Mockito
@@ -61,6 +64,10 @@ Swagger UI at [http://localhost:8080/swagger-ui.html](http://localhost:8080/swag
 | `GET` | `/api/items?query=scanner` | Search items by SKU or name |
 | `POST` | `/api/receipts` | Validate and create an inventory receipt |
 | `GET` | `/api/receipts/{id}` | Read receipt status, lines, and audit history |
+| `GET` | `/api/inventory-organizations` | List valid source and destination organizations |
+| `GET` | `/api/transfer-orders` | List every transfer request for the editable table |
+| `POST` | `/api/transfer-orders` | Create a transfer order between two organizations |
+| `PUT` | `/api/transfer-orders/{id}` | Validate and save one edited transfer-order row |
 
 Example request:
 
@@ -87,13 +94,18 @@ event to the three-partition `receipt-created` Kafka topic. The included
 - Quantities must be between 1 and 10,000 units.
 - Non-empty serial numbers must be unique within a receipt (case-insensitive).
 - Every item identifier must reference an existing inventory item.
+- Transfer source and destination organizations must be different.
+- A transfer quantity cannot exceed the selected item's available inventory.
+- Transfer needed-by dates cannot be in the past.
+- Version checks reject stale table edits instead of silently overwriting them.
 - API errors use a consistent code, message, details, and timestamp structure.
 
 ## Tests
 
 The backend service layer is unit-tested with JUnit 5, Mockito, and AssertJ. The
 tests cover successful persistence/event publishing, normalized item search,
-duplicate serial rejection, and missing inventory items.
+duplicate serial rejection, missing inventory items, transfer creation and
+updates, invalid organization pairs, unavailable quantities, and stale edits.
 
 ```bash
 cd backend
@@ -130,9 +142,10 @@ the API never reports a published event before Kafka accepts it. In a
 high-volume production system, the next evolution would be a transactional
 outbox to atomically bridge PostgreSQL commits and Kafka delivery.
 
-The sample catalog uses familiar, industry-neutral warehouse products and
-invented identifiers. See [Sanitization and domain boundaries](docs/SANITIZATION.md)
-for the rules used to keep the project safe for a public portfolio.
+The sample catalog and organizations use familiar, industry-neutral warehouse
+concepts and invented identifiers. See
+[Sanitization and domain boundaries](docs/SANITIZATION.md) for the rules used to
+keep the project safe for a public portfolio.
 
 ## Interview preparation
 

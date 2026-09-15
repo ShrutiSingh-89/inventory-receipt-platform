@@ -484,7 +484,9 @@ system.
 
 > I built an inventory receipt platform with React and Spring Boot. A user can
 > search a fictional item catalog by SKU, product name, or category, add receipt
-> lines, and submit them with quantity and serial validation. React performs
+> lines, and submit them with quantity and serial validation. Users can also
+> create inventory transfer requests between fictional organizations and edit
+> all request fields inline in a table. React performs
 > immediate validation, while the backend repeats authoritative validation using
 > Bean Validation and service-layer rules. The service verifies item IDs, builds
 > a receipt aggregate, and persists the receipt and lines through JPA to
@@ -493,7 +495,9 @@ system.
 > event, and the UI shows confirmation and lifecycle history. Docker Compose
 > starts React, Spring Boot, PostgreSQL, and Kafka together. I tested service
 > behavior with JUnit and Mockito, including failure paths and verifying that
-> invalid receipts cause no persistence or event side effects. All catalog data,
+> invalid receipts cause no persistence or event side effects. Transfer service
+> tests cover invalid organization pairs, unavailable inventory, valid row
+> updates, and stale-edit detection. All catalog data, organization data,
 > identifiers, and contracts are fictional and sanitized.
 
 ## 15. Common interview questions and strong answers
@@ -558,9 +562,9 @@ events without sensitive payloads.
 ### What would you build next?
 
 The strongest next steps are transactional outbox delivery, idempotent receipt
-creation, Testcontainers integration tests, persistent audit events, pagination,
-authentication/authorization, observability, and optimistic locking for any
-editable receipt lifecycle.
+and transfer creation, Testcontainers integration tests, persistent audit
+events, pagination, authentication/authorization, and observability. Transfer
+orders already demonstrate optimistic locking for editable rows.
 
 ## 16. Practice checklist
 
@@ -576,8 +580,207 @@ Before an interview, make sure you can explain without reading:
 - what every unit test proves, including verified absence of side effects;
 - how Compose service names become network hostnames;
 - exactly how the portfolio is sanitized.
+- how transfer creation, table editing, version checks, and HTTP 409 work.
 
 Finally, practice drawing the architecture from memory in under one minute and
 delivering the two-minute walkthrough in your own words. Interviewers respond
 better to a clear causal story than a list of technologies.
 
+## 17. Transfer orders: create and editable-table request flow
+
+This extension demonstrates an inter-organization inventory movement without
+copying any employer-specific order model. Each sample transfer request moves
+one fictional item from one fictional inventory organization to another. The
+single-item model keeps the portfolio workflow easy to demonstrate; a production
+design could add a `transfer_order_lines` child table for multi-item orders.
+
+### Step 1: Flyway creates reference and transaction tables
+
+[`V3__create_transfer_orders.sql`](../backend/src/main/resources/db/migration/V3__create_transfer_orders.sql)
+creates two tables.
+
+- `inventory_organizations` is controlled reference data. Its code is the short
+  operational identifier displayed in the table, while its name and location
+  provide human-readable context.
+- `transfer_orders` stores source organization, destination organization, item,
+  quantity, status, requester, needed-by date, timestamps, and a version.
+
+Foreign keys prevent orders from referencing organizations or items that do not
+exist. A database check prevents equal source and destination IDs. The quantity
+check provides a final integrity boundary even if an invalid caller bypasses
+the React UI and Java validation.
+
+The migration seeds only fictional organizations and orders. The seed rows make
+the editable table useful immediately after `docker compose up`.
+
+### Step 2: JPA entities represent the relationships
+
+[`InventoryOrganization.java`](../backend/src/main/java/com/portfolio/inventory/domain/InventoryOrganization.java)
+maps the organization reference table.
+
+[`TransferOrder.java`](../backend/src/main/java/com/portfolio/inventory/domain/TransferOrder.java)
+uses three lazy `@ManyToOne` relationships: source organization, destination
+organization, and item. The entity owns an `update` method so field changes stay
+inside the domain object instead of being scattered through the controller.
+
+`TransferOrderStatus` is an enum stored as text. Text is more readable in SQL
+than an enum ordinal and does not corrupt meaning if enum constants are later
+reordered.
+
+The `@Version` field enables optimistic locking. JPA includes the current
+version in an update and increments it after a successful write. This is a good
+fit for a table where two users might open and edit the same request.
+
+### Step 3: DTOs separate create, update, and response contracts
+
+`CreateTransferOrderRequest` accepts source organization ID, destination
+organization ID, item ID, quantity, requester, and needed-by date. The server
+chooses the initial `REQUESTED` status, order number, UUID, timestamps, and
+version so clients cannot forge server-owned fields.
+
+`UpdateTransferOrderRequest` also accepts status and version. Status is editable
+after creation, and version tells the service which row revision the user saw.
+
+`TransferOrderResponse` returns both IDs and display values. For example, it
+contains `sourceOrganizationId` for a select control and
+`sourceOrganizationCode` for a compact table label. Returning a DTO avoids
+serializing lazy JPA proxies or exposing the database entity directly.
+
+### Step 4: repositories load the required relationship graph
+
+`InventoryOrganizationRepository` lists organizations alphabetically for form
+selects. `TransferOrderRepository` orders requests newest-first and applies an
+`@EntityGraph` for source, destination, and item.
+
+The entity graph avoids an N+1 query pattern. Without it, mapping ten orders
+could trigger separate lazy queries for each related organization and item.
+With the graph, JPA fetches the data required for the response as part of the
+repository operation.
+
+### Step 5: the service creates a transfer order
+
+`TransferOrderService.create` performs the use case in this order:
+
+1. Resolve both organization IDs through the organization repository.
+2. Resolve the item ID through the item repository.
+3. Reject a source and destination that refer to the same organization.
+4. Reject a quantity above the item's available inventory.
+5. Reject a needed-by date in the past.
+6. Generate a UUID and readable `TO-yyyyMMdd-HHmmss-XXXX` order number.
+7. Trim the requester, set status to `REQUESTED`, and set audit timestamps.
+8. Persist and flush the entity inside one transaction.
+9. Map the saved entity to a response DTO.
+
+`saveAndFlush` makes database constraint failures visible during the service
+call, before the controller returns success.
+
+### Step 6: the service safely updates one table row
+
+`TransferOrderService.update` first reloads the authoritative order from the
+database. It compares the stored version with the version submitted by React.
+If they differ, another request changed the order after the table was loaded.
+The service throws `StaleTransferOrderException` instead of overwriting that
+newer data.
+
+After the version check, the service resolves and validates the edited source,
+destination, and item exactly as it does during creation. Reusing the same
+business-rule method prevents create and update behavior from drifting apart.
+It then applies the edited values and updated timestamp and flushes the change.
+
+### Step 7: controllers translate use cases into REST
+
+The API surface is deliberately small:
+
+- `GET /api/inventory-organizations` supplies organization select options.
+- `GET /api/transfer-orders` supplies every editable table row.
+- `POST /api/transfer-orders` creates a request and returns HTTP 201.
+- `PUT /api/transfer-orders/{id}` validates and saves one edited row.
+
+Controllers contain no business rules. They validate JSON shape with `@Valid`,
+delegate to the service, and express HTTP semantics. This separation keeps the
+service reusable and easy to unit test.
+
+`ApiExceptionHandler` converts a stale edit to HTTP 409 Conflict with the
+`STALE_UPDATE` code. A 409 is more precise than a generic 400 because the JSON
+can be structurally valid while conflicting with newer server state.
+
+### Step 8: React loads all data required by the page
+
+When `TransferOrders` mounts, one `Promise.all` loads organizations, catalog
+items, and orders concurrently. These calls do not depend on one another, so
+parallel loading reduces page wait time.
+
+The component keeps two representations of each order:
+
+- `orders` is the last server-confirmed data.
+- `drafts` contains current input and select values keyed by order ID.
+
+This separation makes Reset straightforward: replace a row's draft with values
+from its confirmed order. It also avoids mutating the server-confirmed object
+while a user is typing.
+
+### Step 9: the creation form builds a typed JSON payload
+
+The creation form controls source, destination, product, quantity, needed-by
+date, and requester fields. `payloadFrom` converts HTML input strings into the
+numeric IDs and quantity expected by Java.
+
+`validateTransfer` gives immediate feedback for same-organization selections,
+blank requesters, invalid quantities, unavailable inventory, and missing dates.
+The backend repeats authoritative checks because browser validation can be
+bypassed.
+
+After a successful POST, React prepends the response to `orders` and creates a
+matching draft. The new transfer therefore appears immediately in the same
+editable table without a full page reload.
+
+### Step 10: every request row is editable
+
+Each row renders selects for source, destination, product, and status; inputs
+for quantity, date, and requester; plus Save and Reset actions. The order number
+is read-only because it is a server-generated operational reference.
+
+Save converts only that row's draft to an update payload and calls PUT. On
+success, React replaces the confirmed row and draft with the response, including
+the incremented version. Reset discards unsaved input and restores the last
+confirmed response.
+
+This row-level save design is intentional. It makes failure scope obvious and
+avoids sending unrelated table rows when only one transfer changed.
+
+### Step 11: demo mode and live mode share the same UI contract
+
+[`api.js`](../frontend/src/api.js) exposes the same functions in both modes. In
+demo mode it maintains sanitized in-memory orders and enforces representative
+rules. In live mode it calls the Spring endpoints. `TransferOrders` does not
+need conditional business logic for the transport mode; it consumes one stable
+API shape.
+
+### Step 12: unit tests target behavior rather than implementation
+
+`TransferOrderServiceTest` verifies:
+
+- a valid request is created with a readable number and `REQUESTED` status;
+- equal source and destination organizations are rejected;
+- a quantity above available inventory is rejected;
+- an editable row can change quantity, requester, date, and status;
+- a stale version is rejected before any save occurs.
+
+The failure tests verify that the repository save method is never called. That
+assertion is important: it proves invalid requests have no persistence side
+effect, rather than merely proving that an exception was thrown.
+
+### Interview tradeoffs to mention
+
+- **Single item versus lines:** the portfolio request has one item to keep the
+  editable table concise. Multi-item orders would use a header and child lines.
+- **Optimistic versus pessimistic locking:** optimistic locking fits short,
+  infrequent edits and avoids holding database locks while a user views a page.
+- **PUT versus PATCH:** PUT is used because each row submits its full editable
+  representation. PATCH would be reasonable for sparse field changes.
+- **Available quantity:** the demo uses item-level availability. A production
+  model should store on-hand and reservable quantities per organization and
+  perform reservation or allocation transactionally.
+- **Status workflow:** the demo exposes editable statuses. A production service
+  should enforce role-based transitions such as REQUESTED to APPROVED to
+  IN_TRANSIT to COMPLETED and record an immutable audit trail.

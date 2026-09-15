@@ -2,6 +2,7 @@ package com.portfolio.inventory.api;
 
 import com.portfolio.inventory.exception.BusinessValidationException;
 import com.portfolio.inventory.exception.ResourceNotFoundException;
+import com.portfolio.inventory.exception.StaleTransferOrderException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,6 +35,11 @@ public class ApiExceptionHandler {
                 exception.getMessage(), Map.of(), Instant.now()));
     }
 
+    @ExceptionHandler(StaleTransferOrderException.class)
+    ResponseEntity<ApiError> handleStaleTransferOrder(StaleTransferOrderException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("STALE_UPDATE",
+                exception.getMessage(), Map.of(), Instant.now()));
+    }
+
     record ApiError(String code, String message, Map<String, String> details, Instant timestamp) {}
 }
-
