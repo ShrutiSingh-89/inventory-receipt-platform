@@ -18,17 +18,21 @@ class ItemServiceTest {
 
     @Test
     void trimsSearchTermAndMapsResults() {
-        when(itemRepository.findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrderByNameAsc("scanner", "scanner"))
-                .thenReturn(List.of(new Item(1L, "ITM-1001", "Scanner", "Rugged", 42)));
+        when(itemRepository
+                .findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrProductCategoryContainingIgnoreCaseOrderByNameAsc(
+                        "scanner", "scanner", "scanner"))
+                .thenReturn(List.of(new Item(1L, "ITM-1001", "Scanner",
+                        "Scanning & Mobility", "Rugged", 42)));
 
         var results = new ItemService(itemRepository).search("  scanner  ");
 
         assertThat(results).singleElement().satisfies(item -> {
             assertThat(item.sku()).isEqualTo("ITM-1001");
+            assertThat(item.productCategory()).isEqualTo("Scanning & Mobility");
             assertThat(item.availableQuantity()).isEqualTo(42);
         });
         verify(itemRepository)
-                .findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrderByNameAsc("scanner", "scanner");
+                .findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrProductCategoryContainingIgnoreCaseOrderByNameAsc(
+                        "scanner", "scanner", "scanner");
     }
 }
-

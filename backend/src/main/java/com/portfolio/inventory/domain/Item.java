@@ -14,15 +14,17 @@ public class Item {
     private Long id;
     private String sku;
     private String name;
+    private String productCategory;
     private String description;
     private int availableQuantity;
 
     protected Item() {}
 
-    public Item(Long id, String sku, String name, String description, int availableQuantity) {
+    public Item(Long id, String sku, String name, String productCategory, String description, int availableQuantity) {
         this.id = id;
         this.sku = sku;
         this.name = name;
+        this.productCategory = productCategory;
         this.description = description;
         this.availableQuantity = availableQuantity;
     }
@@ -30,7 +32,7 @@ public class Item {
     public Long getId() { return id; }
     public String getSku() { return sku; }
     public String getName() { return name; }
+    public String getProductCategory() { return productCategory; }
     public String getDescription() { return description; }
     public int getAvailableQuantity() { return availableQuantity; }
 }
-

@@ -18,11 +18,11 @@ public class ItemService {
     public List<ItemResponse> search(String query) {
         String normalized = query == null ? "" : query.trim();
         return itemRepository
-                .findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrderByNameAsc(normalized, normalized)
+                .findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrProductCategoryContainingIgnoreCaseOrderByNameAsc(
+                        normalized, normalized, normalized)
                 .stream()
-                .map(item -> new ItemResponse(item.getId(), item.getSku(), item.getName(),
+                .map(item -> new ItemResponse(item.getId(), item.getSku(), item.getName(), item.getProductCategory(),
                         item.getDescription(), item.getAvailableQuantity()))
                 .toList();
     }
 }
-

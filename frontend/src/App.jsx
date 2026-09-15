@@ -130,7 +130,7 @@ function InventorySearch({ onAdd }) {
           {items.map((item, index) => (
             <article className="item-row" key={item.id}>
               <div className={`item-icon color-${index % 3}`}><Box size={23}/></div>
-              <div className="item-copy"><div><span className="sku">{item.sku}</span><span className="stock"><i/> {item.availableQuantity} available</span></div><h3>{item.name}</h3><p>{item.description}</p></div>
+              <div className="item-copy"><div><span className="sku">{item.sku}</span><span className="category-tag">{item.productCategory}</span><span className="stock"><i/> {item.availableQuantity} available</span></div><h3>{item.name}</h3><p>{item.description}</p></div>
               <button className="secondary" onClick={() => onAdd(item)}>Add to receipt <ArrowRight size={16}/></button>
             </article>
           ))}
@@ -283,4 +283,3 @@ function EventMonitor({ receipt }) {
 }
 
 export default App;
-

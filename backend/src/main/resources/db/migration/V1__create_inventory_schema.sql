@@ -2,6 +2,7 @@ CREATE TABLE items (
   id BIGSERIAL PRIMARY KEY,
   sku VARCHAR(40) NOT NULL UNIQUE,
   name VARCHAR(160) NOT NULL,
+  product_category VARCHAR(80) NOT NULL,
   description VARCHAR(500),
   available_quantity INTEGER NOT NULL CHECK (available_quantity >= 0)
 );
@@ -25,4 +26,3 @@ CREATE TABLE receipt_lines (
 
 CREATE INDEX idx_items_name_lower ON items (LOWER(name));
 CREATE INDEX idx_receipt_lines_receipt_id ON receipt_lines (receipt_id);
-

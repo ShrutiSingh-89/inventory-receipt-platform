@@ -1,10 +1,10 @@
 const demoItems = [
-  { id: 1, sku: 'ITM-1001', name: 'Industrial Barcode Scanner', description: 'Rugged handheld scanner with charging dock', availableQuantity: 42 },
-  { id: 2, sku: 'ITM-1002', name: 'Thermal Label Roll', description: 'Weather-resistant 4 × 6 inch labels', availableQuantity: 380 },
-  { id: 3, sku: 'ITM-1003', name: 'Warehouse Tablet', description: '10-inch inventory floor tablet', availableQuantity: 18 },
-  { id: 4, sku: 'ITM-1004', name: 'RFID Reader Gateway', description: 'Fixed reader for dock-door inventory tracking', availableQuantity: 12 },
-  { id: 5, sku: 'ITM-1005', name: 'Protective Scanner Case', description: 'Impact-resistant scanner sleeve', availableQuantity: 96 },
-  { id: 6, sku: 'ITM-1006', name: 'Mobile Receipt Printer', description: 'Bluetooth thermal printer', availableQuantity: 27 }
+  { id: 1, sku: 'ITM-1001', name: 'Industrial Barcode Scanner', productCategory: 'Scanning & Mobility', description: 'Rugged handheld scanner with charging dock', availableQuantity: 42 },
+  { id: 2, sku: 'ITM-1002', name: 'Thermal Label Roll', productCategory: 'Packaging Supplies', description: 'Weather-resistant 4 × 6 inch labels', availableQuantity: 380 },
+  { id: 3, sku: 'ITM-1003', name: 'Warehouse Tablet', productCategory: 'Mobile Computing', description: '10-inch inventory floor tablet', availableQuantity: 18 },
+  { id: 4, sku: 'ITM-1004', name: 'RFID Reader Gateway', productCategory: 'Identification Systems', description: 'Fixed reader for dock-door inventory tracking', availableQuantity: 12 },
+  { id: 5, sku: 'ITM-1005', name: 'Protective Scanner Case', productCategory: 'Equipment Accessories', description: 'Impact-resistant scanner sleeve', availableQuantity: 96 },
+  { id: 6, sku: 'ITM-1006', name: 'Mobile Receipt Printer', productCategory: 'Printing & Labeling', description: 'Bluetooth thermal printer', availableQuantity: 27 }
 ];
 
 export const isDemo = import.meta.env.VITE_DEMO_MODE === 'true';
@@ -12,7 +12,7 @@ export const isDemo = import.meta.env.VITE_DEMO_MODE === 'true';
 export async function searchItems(query = '') {
   if (isDemo) {
     const term = query.toLowerCase();
-    return demoItems.filter(item => `${item.sku} ${item.name}`.toLowerCase().includes(term));
+    return demoItems.filter(item => `${item.sku} ${item.name} ${item.productCategory}`.toLowerCase().includes(term));
   }
   const response = await fetch(`/api/items?query=${encodeURIComponent(query)}`);
   if (!response.ok) throw new Error('Could not load inventory');
@@ -51,4 +51,3 @@ export async function createReceipt(payload) {
 }
 
 export { demoItems };
-

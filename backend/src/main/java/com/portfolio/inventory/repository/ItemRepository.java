@@ -5,6 +5,6 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ItemRepository extends JpaRepository<Item, Long> {
-    List<Item> findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrderByNameAsc(String sku, String name);
+    List<Item> findTop20BySkuContainingIgnoreCaseOrNameContainingIgnoreCaseOrProductCategoryContainingIgnoreCaseOrderByNameAsc(
+            String sku, String name, String productCategory);
 }
-

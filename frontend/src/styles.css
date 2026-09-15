@@ -71,6 +71,7 @@ kbd { border: 1px solid #d9e1dd; border-radius: 5px; padding: 3px 7px; backgroun
 .item-icon.color-2 { background: #e9eef8; color: #4f6294; }
 .item-copy > div { display: flex; gap: 10px; align-items: center; }
 .sku { font-size: 10px; color: #66776f; letter-spacing: .7px; font-weight: 700; }
+.category-tag { font-size: 9px; color: #536d62; background: #eef4f1; border-radius: 99px; padding: 2px 7px; }
 .stock { font-size: 10px; color: #3b735c; display: flex; align-items: center; gap: 4px; }
 .stock i { width: 5px; height: 5px; background: #35af7c; border-radius: 50%; }
 .item-copy h3 { font-size: 14px; margin-top: 4px; }
@@ -177,4 +178,3 @@ input.invalid { border-color: #d85454; background: #fffafa; box-shadow: 0 0 0 3p
   .page-wrap { padding-left: 28px; padding-right: 28px; }
   .line-table-head, .line-row { grid-template-columns: minmax(210px,1.4fr) 90px minmax(150px,1fr) 28px; }
 }
-

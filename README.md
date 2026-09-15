@@ -5,6 +5,7 @@ PostgreSQL, Kafka, and Docker.
 
 ## Features
 - Search inventory items
+- Group fictional items into recognizable product categories
 - Create and validate receipt lines
 - Prevent invalid quantities and duplicate serial numbers
 - Persist receipts and receipt lines
@@ -128,6 +129,17 @@ code or production data. The Kafka publisher waits for broker acknowledgement so
 the API never reports a published event before Kafka accepts it. In a
 high-volume production system, the next evolution would be a transactional
 outbox to atomically bridge PostgreSQL commits and Kafka delivery.
+
+The sample catalog uses familiar, industry-neutral warehouse products and
+invented identifiers. See [Sanitization and domain boundaries](docs/SANITIZATION.md)
+for the rules used to keep the project safe for a public portfolio.
+
+## Interview preparation
+
+Read the [detailed code and interview guide](docs/INTERVIEW_GUIDE.md) for the
+end-to-end request flow, file-by-file reasoning, design tradeoffs, testing
+strategy, and suggested answers to common React, Spring, PostgreSQL, Kafka, and
+Docker interview questions.
 
 ## License
 

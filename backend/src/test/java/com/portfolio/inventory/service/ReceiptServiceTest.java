@@ -45,7 +45,8 @@ class ReceiptServiceTest {
 
     @Test
     void createsReceiptAndPublishesEvent() {
-        Item scanner = new Item(1L, "ITM-1001", "Industrial Barcode Scanner", "Rugged scanner", 42);
+        Item scanner = new Item(1L, "ITM-1001", "Industrial Barcode Scanner",
+                "Scanning & Mobility", "Rugged scanner", 42);
         when(itemRepository.findById(1L)).thenReturn(Optional.of(scanner));
         when(receiptRepository.saveAndFlush(any(Receipt.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -85,4 +86,3 @@ class ReceiptServiceTest {
         verify(eventPublisher, never()).publish(any());
     }
 }
-
