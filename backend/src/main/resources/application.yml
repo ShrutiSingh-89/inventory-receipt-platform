@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: inventory-receipt-platform
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/inventory}
+    username: ${SPRING_DATASOURCE_USERNAME:inventory}
+    password: ${SPRING_DATASOURCE_PASSWORD:inventory}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: receipt-audit
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.portfolio.inventory.event
+        spring.json.value.default.type: com.portfolio.inventory.event.ReceiptCreatedEvent
+
+app:
+  kafka:
+    receipt-topic: receipt-created
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
