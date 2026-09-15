@@ -38,7 +38,7 @@ INSERT INTO transfer_orders (
    (SELECT id FROM inventory_organizations WHERE code = 'ORG-CENTRAL'),
    (SELECT id FROM inventory_organizations WHERE code = 'ORG-EAST'),
    (SELECT id FROM items WHERE sku = 'ITM-1001'),
-   12, 'REQUESTED', 'Sam Kim', '2026-09-20', '2026-09-15T09:15:00Z', '2026-09-15T09:15:00Z', 0),
+   12, 'REQUESTED', 'Shruti Singh', '2026-09-20', '2026-09-15T09:15:00Z', '2026-09-15T09:15:00Z', 0),
   ('83c43db0-3dbf-4ef8-8ebd-61166f54ab02', 'TO-20260914-143000-83C4',
    (SELECT id FROM inventory_organizations WHERE code = 'ORG-WEST'),
    (SELECT id FROM inventory_organizations WHERE code = 'ORG-SOUTH'),

@@ -92,7 +92,7 @@ function Sidebar({ view, navigate }) {
         <div className="system-row"><span className="pulse" /> All systems operational</div>
         <div className="system-detail">API · DB · Kafka</div>
       </div>
-      <div className="profile"><div className="avatar">SK</div><div><strong>Sam Kim</strong><span>Warehouse lead</span></div></div>
+      <div className="profile"><div className="avatar">SS</div><div><strong>Shruti Singh</strong><span>Warehouse lead</span></div></div>
     </aside>
   );
 }
@@ -260,7 +260,7 @@ function TransferOrders() {
   const [drafts, setDrafts] = useState({});
   const [form, setForm] = useState({
     sourceOrganizationId: '1', destinationOrganizationId: '2', itemId: '1',
-    quantity: '6', requestedBy: 'Sam Kim', neededBy: defaultNeededBy()
+    quantity: '6', requestedBy: 'Shruti Singh', neededBy: defaultNeededBy()
   });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);

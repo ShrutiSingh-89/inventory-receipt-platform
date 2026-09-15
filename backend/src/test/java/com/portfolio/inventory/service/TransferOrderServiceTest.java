@@ -61,7 +61,7 @@ class TransferOrderServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         TransferOrderResponse result = service.create(new CreateTransferOrderRequest(
-                1L, 2L, 1L, 12, " Sam Kim ", LocalDate.parse("2026-09-20")));
+                1L, 2L, 1L, 12, " Shruti Singh ", LocalDate.parse("2026-09-20")));
 
         assertThat(result.orderNumber()).startsWith("TO-20260915-103000-");
         assertThat(result.sourceOrganizationCode()).isEqualTo("ORG-CENTRAL");
@@ -69,7 +69,7 @@ class TransferOrderServiceTest {
         assertThat(result.itemName()).isEqualTo("Industrial Barcode Scanner");
         assertThat(result.quantity()).isEqualTo(12);
         assertThat(result.status()).isEqualTo(TransferOrderStatus.REQUESTED);
-        assertThat(result.requestedBy()).isEqualTo("Sam Kim");
+        assertThat(result.requestedBy()).isEqualTo("Shruti Singh");
     }
 
     @Test
@@ -78,7 +78,7 @@ class TransferOrderServiceTest {
         when(itemRepository.findById(1L)).thenReturn(Optional.of(scanner));
 
         assertThatThrownBy(() -> service.create(new CreateTransferOrderRequest(
-                1L, 1L, 1L, 5, "Sam Kim", LocalDate.parse("2026-09-20"))))
+                1L, 1L, 1L, 5, "Shruti Singh", LocalDate.parse("2026-09-20"))))
                 .isInstanceOf(BusinessValidationException.class)
                 .hasMessage("Source and destination organizations must be different");
         verify(transferOrderRepository, never()).saveAndFlush(any());
@@ -91,7 +91,7 @@ class TransferOrderServiceTest {
         when(itemRepository.findById(1L)).thenReturn(Optional.of(scanner));
 
         assertThatThrownBy(() -> service.create(new CreateTransferOrderRequest(
-                1L, 2L, 1L, 43, "Sam Kim", LocalDate.parse("2026-09-20"))))
+                1L, 2L, 1L, 43, "Shruti Singh", LocalDate.parse("2026-09-20"))))
                 .isInstanceOf(BusinessValidationException.class)
                 .hasMessageContaining("exceeds available inventory");
         verify(transferOrderRepository, never()).saveAndFlush(any());
@@ -101,7 +101,7 @@ class TransferOrderServiceTest {
     void updatesAnEditableTransferOrderRow() {
         UUID id = UUID.fromString("b430b623-a828-4b6a-bae1-52c588e69801");
         TransferOrder order = new TransferOrder(id, "TO-20260915-091500-B430", central, east, scanner,
-                12, TransferOrderStatus.REQUESTED, "Sam Kim", LocalDate.parse("2026-09-20"),
+                12, TransferOrderStatus.REQUESTED, "Shruti Singh", LocalDate.parse("2026-09-20"),
                 Instant.parse("2026-09-15T09:15:00Z"));
         when(transferOrderRepository.findDetailedById(id)).thenReturn(Optional.of(order));
         when(organizationRepository.findById(1L)).thenReturn(Optional.of(central));
@@ -123,12 +123,12 @@ class TransferOrderServiceTest {
     void rejectsStaleTableEdit() {
         UUID id = UUID.fromString("b430b623-a828-4b6a-bae1-52c588e69801");
         TransferOrder order = new TransferOrder(id, "TO-20260915-091500-B430", central, east, scanner,
-                12, TransferOrderStatus.REQUESTED, "Sam Kim", LocalDate.parse("2026-09-20"),
+                12, TransferOrderStatus.REQUESTED, "Shruti Singh", LocalDate.parse("2026-09-20"),
                 Instant.parse("2026-09-15T09:15:00Z"));
         when(transferOrderRepository.findDetailedById(id)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> service.update(id, new UpdateTransferOrderRequest(
-                1L, 2L, 1L, 10, "Sam Kim", LocalDate.parse("2026-09-21"),
+                1L, 2L, 1L, 10, "Shruti Singh", LocalDate.parse("2026-09-21"),
                 TransferOrderStatus.APPROVED, 4)))
                 .isInstanceOf(StaleTransferOrderException.class)
                 .hasMessageContaining("Refresh the table");

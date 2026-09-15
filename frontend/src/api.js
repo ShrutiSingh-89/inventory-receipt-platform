@@ -22,7 +22,7 @@ let demoTransferOrders = [
     sourceOrganizationId: 1, sourceOrganizationCode: 'ORG-CENTRAL', sourceOrganizationName: 'Central Distribution Center',
     destinationOrganizationId: 2, destinationOrganizationCode: 'ORG-EAST', destinationOrganizationName: 'East Regional Warehouse',
     itemId: 1, sku: 'ITM-1001', itemName: 'Industrial Barcode Scanner', quantity: 12, status: 'REQUESTED',
-    requestedBy: 'Sam Kim', neededBy: '2026-09-20', createdAt: '2026-09-15T09:15:00Z', updatedAt: '2026-09-15T09:15:00Z', version: 0
+    requestedBy: 'Shruti Singh', neededBy: '2026-09-20', createdAt: '2026-09-15T09:15:00Z', updatedAt: '2026-09-15T09:15:00Z', version: 0
   },
   {
     id: '83c43db0-3dbf-4ef8-8ebd-61166f54ab02', orderNumber: 'TO-20260914-143000-83C4',
