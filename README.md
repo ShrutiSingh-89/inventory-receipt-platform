@@ -39,14 +39,6 @@ flowchart LR
   S --> O[OpenAPI / Swagger]
 ```
 
-## Run locally
-```bash
-docker compose up --build
-```
-
-Open the React application at [http://localhost:3000](http://localhost:3000) and
-Swagger UI at [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html).
-
 ## Screenshots
 
 ### Item search and results
