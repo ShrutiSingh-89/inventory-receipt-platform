@@ -1,7 +1,7 @@
 # Inventory Receipt Platform
 
 A full-stack inventory receipt and inter-organization transfer application built
-with React, Java Spring Boot, PostgreSQL, Kafka, and Docker.
+with React, Java Spring Boot.
 
 ## Features
 - Search inventory items
