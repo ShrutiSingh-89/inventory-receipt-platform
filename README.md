@@ -53,10 +53,6 @@ flowchart LR
 
 ![Receipt status](docs/screenshots/receipt-status.jpg)
 
-### Kafka event monitor
-
-![Kafka ReceiptCreated event](docs/screenshots/kafka-event.jpg)
-
 ## API endpoints
 
 | Method | Endpoint | Purpose |
@@ -85,46 +81,6 @@ Example request:
 }
 ```
 
-Successful creation persists the receipt and publishes a `ReceiptCreated` JSON
-event to the three-partition `receipt-created` Kafka topic. The included
-`ReceiptAuditConsumer` consumes the same event and writes a structured audit log.
-
-## Validation rules
-
-- A supplier and at least one receipt line are required.
-- Quantities must be between 1 and 10,000 units.
-- Non-empty serial numbers must be unique within a receipt (case-insensitive).
-- Serial-controlled items require exactly one serial number per received unit.
-- Non-serial-controlled items reject accidental serial assignments.
-- A serial number already received on an earlier receipt cannot be reused.
-- Every item identifier must reference an existing inventory item.
-- Transfer source and destination organizations must be different.
-- A transfer quantity cannot exceed the selected item's available inventory.
-- Transfer needed-by dates cannot be in the past.
-- Version checks reject stale table edits instead of silently overwriting them.
-- API errors use a consistent code, message, details, and timestamp structure.
-
-## Tests
-
-The backend service layer is unit-tested with JUnit 5, Mockito, and AssertJ. The
-tests cover successful persistence/event publishing, normalized item search,
-per-unit serial policy, duplicate and previously received serial rejection,
-copilot catalog matching, unknown products, missing serial behavior, transfer
-creation and updates, invalid organization pairs, unavailable quantities, and
-stale edits.
-
-```bash
-cd backend
-mvn test
-```
-
-Build the React client independently with:
-
-```bash
-cd frontend
-npm install
-npm run build
-```
 
 ## Project structure
 
